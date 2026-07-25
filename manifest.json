@@ -1,11 +1,11 @@
 {
-    "display_name": "Session Time Tracker",
-    "loading_order": 100,
+    "display_name": "Screen Time Stats",
+    "loading_order": 50,
     "js": "index.js",
     "css": "style.css",
-    "author": "Your Name",
+    "author": "SillyTavern Architect",
     "version": "1.0.0",
-    "hooks": {
-        "activate": "onActivate"
-    }
+    "auto_update": false,
+    "homePage": "",
+    "requires": []
 }
