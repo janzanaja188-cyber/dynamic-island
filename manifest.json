@@ -1,9 +1,11 @@
 {
-    "display_name": "iOS Screen Time",
+    "display_name": "Session Time Tracker",
     "loading_order": 100,
     "js": "index.js",
     "css": "style.css",
     "author": "Your Name",
     "version": "1.0.0",
-    "auto_update": false
+    "hooks": {
+        "activate": "onActivate"
+    }
 }
