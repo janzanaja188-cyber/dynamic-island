@@ -1,24 +1,26 @@
+// ดึง Context ของ SillyTavern มาใช้งาน (ห้าม Import โดยตรง)
 const context = SillyTavern.getContext();
-const extensionName = "ios-screen-time";
+const extensionName = "session-time-tracker"; // ต้องตรงกับชื่อโฟลเดอร์เป๊ะๆ
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 
-// ฟังก์ชันสำหรับโหลดและแทรก UI
-async function setupUI() {
-    try {
-        console.log(`[${extensionName}] Attempting to load HTML...`);
-        const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
+// ฟังก์ชันเริ่มต้น (Hook)
+window.onActivate = function() {
+    console.log(`[${extensionName}] Activating hook...`);
+};
 
-        // แทรกในหน้าต่างตั้งค่า Extension (ด้านขวา)
+// รอให้แอปโหลด UI เสร็จก่อนค่อยแทรก HTML
+context.eventSource.on(context.event_types.APP_READY, async () => {
+    console.log(`[${extensionName}] Loading extension UI...`);
+
+    try {
+        // ใช้ Context เพื่อโหลด HTML แทนการใช้ $.get ตรงๆ เพื่อความปลอดภัยและรองรับการแปล
+        const settingsHtml = await context.renderExtensionTemplateAsync(`third-party/${extensionName}`, 'settings');
+
+        // แทรกเข้าไปในเมนู Extensions (ด้านขวา)
         $("#extensions_settings2").append(settingsHtml);
 
-        console.log(`[${extensionName}] ✅ UI appended successfully`);
+        console.log(`[${extensionName}] ✅ Loaded successfully`);
     } catch (error) {
-        console.error(`[${extensionName}] ❌ Failed to load HTML:`, error);
+        console.error(`[${extensionName}] ❌ Failed to load UI:`, error);
     }
-}
-
-// รอจนกว่า SillyTavern จะโหลด UI พื้นฐานเสร็จสมบูรณ์
-context.eventSource.on(context.event_types.APP_READY, () => {
-    console.log(`[${extensionName}] App ready, initializing...`);
-    setupUI();
 });
