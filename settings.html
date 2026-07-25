@@ -1,12 +1,21 @@
-<div class="session-time-tracker-settings">
+// path: public/scripts/extensions/third-party/st-screentime-stats/settings.html
+<div class="st-screentime-settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>Session Time Tracker</b>
+            <b>⏱️ Screen Time Stats</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <p>✅ Extension โหลดสำเร็จแล้ว!</p>
-            <p>ถ้าคุณเห็นข้อความนี้ แสดงว่าโครงสร้างพื้นฐานทำงานได้สมบูรณ์</p>
+            <label for="screentime_idle_timeout">
+                หยุดนับเวลาอัตโนมัติเมื่อไม่ขยับเมาส์/พิมพ์ (นาที)
+            </label>
+            <input id="screentime_idle_timeout" class="text_pole" type="number" min="1" max="60" value="5" />
+            <small>ระบบจะบันทึกสถิติแบบถาวรอัตโนมัติ (Lifetime Data)</small>
+            
+            <hr>
+            <button id="screentime_show_dashboard" class="menu_button">
+                <i class="fa-solid fa-chart-column"></i> เปิดหน้าต่างสถิติ (Dashboard)
+            </button>
         </div>
     </div>
 </div>
