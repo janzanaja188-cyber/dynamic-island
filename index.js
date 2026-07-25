@@ -1,13 +1,15 @@
 const context = SillyTavern.getContext();
 const extensionName = "ios-screen-time";
-const extensionFolderPath = `third-party/${extensionName}`;
+
+// ระบุ Path แบบเต็มที่ ST ใช้ดึงไฟล์จริงๆ
+const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 
 jQuery(async () => {
     console.log(`[${extensionName}] Loading...`);
 
     try {
-        // โหลด HTML จากไฟล์
-        const settingsHtml = await context.renderExtensionTemplateAsync(extensionFolderPath, 'settings');
+        // เปลี่ยนมาใช้ $.get() แบบมาตรฐาน และระบุนามสกุล .html ให้ชัดเจน
+        const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
 
         // นำไปแทรกในหน้าต่างตั้งค่า Extension (ด้านขวา)
         $("#extensions_settings2").append(settingsHtml);
