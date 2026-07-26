@@ -1,262 +1,320 @@
-// path: public/scripts/extensions/third-party/st-screentime-stats/index.js
+// path: public/scripts/extensions/third-party/ios-virtual-phone/index.js
 
-const MODULE_NAME = 'st_screentime_stats';
-const STORE_NAME = 'ScreentimeStatsData';
+const extensionName = 'ios-virtual-phone';
+const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+const MODULE_NAME = 'iosVirtualPhoneSettings';
 
-let context;
-let lastActiveTime = Date.now();
-let trackingInterval = null;
-let currentSessionMinutes = 0;
-let statsData = {}; 
-
-const defaultSettings = {
-    idleTimeout: 5 
+// ตั้งค่าพื้นฐาน
+let settings = {
+    iconBase64: '',
+    posX: 20,
+    posY: 20
 };
 
-function resetIdleTimer() {
-    lastActiveTime = Date.now();
+let isDragging = false;
+let isPhoneOpen = false;
+let notifTimeout = null;
+
+// HTML Elements
+let $floatingBtn, $notification, $modal, $chatArea;
+
+// 1. โหลดและจัดการ Settings
+async function loadSettings() {
+    const context = SillyTavern.getContext();
+    settings = Object.assign(settings, context.extensionSettings[MODULE_NAME] || {});
 }
 
-function getTodayString() {
-    const d = new Date();
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().split('T')[0];
+async function saveSettings() {
+    const context = SillyTavern.getContext();
+    context.extensionSettings[MODULE_NAME] = settings;
+    context.saveSettingsDebounced();
 }
 
-async function loadStatsData() {
-    const stored = await SillyTavern.libs.localforage.getItem(STORE_NAME);
-    if (stored) {
-        statsData = stored;
-    }
-}
+// 2. สร้าง Elements ของมือถือลงในหน้าจอ
+function injectUI() {
+    // ปุ่มลอย
+    const btnHtml = `<div id="ios-vp-floating-btn" style="right: ${settings.posX}px; bottom: ${settings.posY}px;"></div>`;
+    $('body').append(btnHtml);
+    $floatingBtn = $('#ios-vp-floating-btn');
 
-let saveTimeout;
-function saveStatsData() {
-    clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(async () => {
-        await SillyTavern.libs.localforage.setItem(STORE_NAME, statsData);
-    }, 2000); 
-}
-
-function incrementStat(type, amount = 1) {
-    if (!context.characterId || !context.characters[context.characterId]) return;
-    
-    const char = context.characters[context.characterId];
-    const charId = char.avatar || char.name; 
-    const today = getTodayString();
-
-    if (!statsData[charId]) statsData[charId] = {};
-    if (!statsData[charId][today]) {
-        statsData[charId][today] = { time: 0, msgs: 0, name: char.name };
+    if (settings.iconBase64) {
+        $floatingBtn.css('background-image', `url(${settings.iconBase64})`);
     }
 
-    statsData[charId][today].name = char.name; 
-    statsData[charId][today][type] += amount;
-    
-    saveStatsData();
-}
-
-function startTrackingLoop() {
-    if (trackingInterval) clearInterval(trackingInterval);
-    
-    trackingInterval = setInterval(() => {
-        const settings = context.extensionSettings[MODULE_NAME] || defaultSettings;
-        const timeoutMs = (settings.idleTimeout || 5) * 60 * 1000;
-        
-        if (context.characterId === undefined) return;
-        
-        if (Date.now() - lastActiveTime < timeoutMs) {
-            currentSessionMinutes += (10 / 60); 
-            if (currentSessionMinutes >= 1) {
-                incrementStat('time', 1); 
-                currentSessionMinutes -= 1;
-            }
-        }
-    }, 10000);
-}
-
-function renderDashboard() {
-    let charId = null;
-    let charName = "สถิติรวม";
-    if (context.characterId !== undefined && context.characters[context.characterId]) {
-        const char = context.characters[context.characterId];
-        charId = char.avatar || char.name;
-        charName = char.name;
-    }
-
-    if ($('#screentime-modal').length === 0) {
-        $('body').append(`
-            <div id="screentime-modal" class="screentime-modal-overlay">
-                <div class="screentime-dashboard">
-                    <div class="screentime-close-btn" id="st-modal-close-btn">
-                        <i class="fa-solid fa-xmark"></i>
-                    </div>
-                    <div class="screentime-header">
-                        ✨ Screen Time Stats
-                        <span id="st-db-subtitle">ข้อมูลการโต้ตอบของคุณ</span>
-                    </div>
-                    
-                    <div class="screentime-tabs">
-                        <div class="screentime-tab active" data-tab="weekly">สัปดาห์นี้</div>
-                        <div class="screentime-tab" data-tab="leaderboard">อันดับสูงสุด (ตลอดกาล)</div>
-                    </div>
-
-                    <div id="tab-weekly" class="screentime-content active">
-                        <div style="text-align:center; margin-bottom:10px;">
-                            <b>${charId ? 'เฉพาะ: ' + DOMPurify.sanitize(charName) : 'กรุณาเลือกตัวละครก่อน'}</b>
-                        </div>
-                        <div class="screentime-chart" id="st-chart-container"></div>
-                    </div>
-
-                    <div id="tab-leaderboard" class="screentime-content">
-                        <div class="screentime-leaderboard" id="st-lb-container"></div>
-                    </div>
-                </div>
+    // แจ้งเตือน
+    const notifHtml = `
+        <div id="ios-vp-notification">
+            <div class="ios-vp-notif-icon">💬</div>
+            <div class="ios-vp-notif-content">
+                <div class="ios-vp-notif-title">New Message</div>
+                <div class="ios-vp-notif-text" id="ios-vp-notif-preview">...</div>
             </div>
-        `);
+        </div>`;
+    $('body').append(notifHtml);
+    $notification = $('#ios-vp-notification');
 
-        $('#st-modal-close-btn').on('click', function() {
-            $('#screentime-modal').removeClass('show');
-        });
+    // หน้าจอมือถือ
+    const modalHtml = `
+        <div id="ios-vp-modal">
+            <div class="ios-vp-notch"></div>
+            <div class="ios-vp-app-header">
+                <div class="ios-vp-close-btn"><i class="fa-solid fa-chevron-left"></i> Back</div>
+                Messages
+            </div>
+            <div class="ios-vp-chat-area" id="ios-vp-chat-area"></div>
+            <div class="ios-vp-input-area">
+                <input type="text" id="ios-vp-input" placeholder="Text Message" autocomplete="off">
+                <button id="ios-vp-send-btn"><i class="fa-solid fa-arrow-up"></i></button>
+            </div>
+        </div>`;
+    $('body').append(modalHtml);
+    $modal = $('#ios-vp-modal');
+    $chatArea = $('#ios-vp-chat-area');
 
-        $('.screentime-tab').on('click', function() {
-            $('.screentime-tab').removeClass('active');
-            $('.screentime-content').removeClass('active');
-            $(this).addClass('active');
-            $('#tab-' + $(this).data('tab')).addClass('active');
-            
-            if($(this).data('tab') === 'weekly') {
-                animateBars();
-            }
-        });
+    setupEvents();
+}
+
+// 3. จัดการ Events (ลากปุ่ม, คลิก, ส่งข้อความ)
+function setupEvents() {
+    // Drag & Drop ปุ่มลอย
+    let startX, startY, initialRight, initialBottom;
+
+    $floatingBtn.on('mousedown touchstart', function (e) {
+        isDragging = false;
+        const event = e.type === 'touchstart' ? e.originalEvent.touches[0] : e;
+        startX = event.clientX;
+        startY = event.clientY;
+        initialRight = parseInt($floatingBtn.css('right'), 10);
+        initialBottom = parseInt($floatingBtn.css('bottom'), 10);
+
+        $(document).on('mousemove.iosvp touchmove.iosvp', onMouseMove);
+        $(document).on('mouseup.iosvp touchend.iosvp', onMouseUp);
+    });
+
+    function onMouseMove(e) {
+        const event = e.type === 'touchmove' ? e.originalEvent.touches[0] : e;
+        const dx = startX - event.clientX;
+        const dy = startY - event.clientY;
+        
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) isDragging = true; // แยกคลิกกับการลาก
+
+        if (isDragging) {
+            let newRight = initialRight + dx;
+            let newBottom = initialBottom + dy;
+
+            // กันทะลุขอบ
+            const maxRight = window.innerWidth - $floatingBtn.outerWidth();
+            const maxBottom = window.innerHeight - $floatingBtn.outerHeight();
+            newRight = Math.max(0, Math.min(newRight, maxRight));
+            newBottom = Math.max(0, Math.min(newBottom, maxBottom));
+
+            $floatingBtn.css({ right: `${newRight}px`, bottom: `${newBottom}px` });
+        }
     }
 
-    const chartContainer = $('#st-chart-container');
-    chartContainer.empty();
-    
-    if (charId && statsData[charId]) {
-        const last7Days = [];
-        let maxTime = 1; 
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateStr = d.toISOString().split('T')[0];
-            const displayDay = d.toLocaleDateString('th-TH', { weekday: 'short' });
-            
-            const timeVal = statsData[charId][dateStr] ? statsData[charId][dateStr].time : 0;
-            const msgsVal = statsData[charId][dateStr] ? statsData[charId][dateStr].msgs : 0;
-            if (timeVal > maxTime) maxTime = timeVal;
-            
-            last7Days.push({ date: displayDay, time: timeVal, msgs: msgsVal });
+    function onMouseUp() {
+        $(document).off('mousemove.iosvp touchmove.iosvp mouseup.iosvp touchend.iosvp');
+        if (isDragging) {
+            settings.posX = parseInt($floatingBtn.css('right'), 10);
+            settings.posY = parseInt($floatingBtn.css('bottom'), 10);
+            saveSettings();
         }
+    }
 
-        last7Days.forEach(day => {
-            const heightPercent = Math.max((day.time / maxTime) * 100, 2); 
-            const tooltip = `${day.time.toFixed(1)} นาที | ${day.msgs} ข้อความ`;
-            
-            chartContainer.append(`
-                <div class="screentime-bar-wrapper">
-                    <div class="screentime-bar" data-val="${tooltip}" data-target-height="${heightPercent}%"></div>
-                    <div class="screentime-label">${day.date}</div>
-                </div>
-            `);
-        });
+    // เปิด/ปิดมือถือ
+    $floatingBtn.on('click', (e) => {
+        if (!isDragging) togglePhone();
+    });
+    $notification.on('click', () => {
+        hideNotification();
+        if (!isPhoneOpen) togglePhone();
+    });
+    $('.ios-vp-close-btn').on('click', () => togglePhone(false));
+
+    // ส่งข้อความจากมือถือ
+    $('#ios-vp-send-btn').on('click', sendSMS);
+    $('#ios-vp-input').on('keypress', (e) => {
+        if (e.key === 'Enter') sendSMS();
+    });
+}
+
+// 4. ฟังก์ชันแสดง/ซ่อน แบะแจ้งเตือน
+function togglePhone(forceState) {
+    isPhoneOpen = forceState !== undefined ? forceState : !isPhoneOpen;
+    if (isPhoneOpen) {
+        $modal.addClass('open');
+        refreshPhoneChat();
     } else {
-        chartContainer.html('<div style="margin: auto; opacity: 0.5;">ยังไม่มีข้อมูลสถิติของตัวละครนี้</div>');
+        $modal.removeClass('open');
     }
-
-    const lbContainer = $('#st-lb-container');
-    lbContainer.empty();
-    
-    const allBots = [];
-    for (const [avatarId, days] of Object.entries(statsData)) {
-        let totalTime = 0;
-        let totalMsgs = 0;
-        let botName = "Unknown";
-        for (const [date, data] of Object.entries(days)) {
-            totalTime += data.time || 0;
-            totalMsgs += data.msgs || 0;
-            if (data.name) botName = data.name;
-        }
-        if (totalTime > 0 || totalMsgs > 0) {
-            allBots.push({ avatarId, botName, totalTime, totalMsgs });
-        }
-    }
-
-    allBots.sort((a, b) => b.totalTime - a.totalTime);
-
-    allBots.slice(0, 5).forEach((bot, index) => { 
-        let rankMedal = `${index + 1}`;
-        if (index === 0) rankMedal = "👑";
-        if (index === 1) rankMedal = "🥈";
-        if (index === 2) rankMedal = "🥉";
-
-        const avatarSrc = bot.avatarId.includes('.') ? `/characters/${bot.avatarId}` : '/img/ai-icons/bot.png';
-
-        lbContainer.append(`
-            <div class="leaderboard-item">
-                <div class="leaderboard-rank">${rankMedal}</div>
-                <img class="leaderboard-avatar" src="${avatarSrc}" onerror="this.src='/img/ai-icons/bot.png'">
-                <div class="leaderboard-details">
-                    <div class="leaderboard-name">${DOMPurify.sanitize(bot.botName)}</div>
-                    <div class="leaderboard-stats">คุยไปแล้ว ${bot.totalTime.toFixed(0)} นาที • ${bot.totalMsgs} ข้อความ</div>
-                </div>
-            </div>
-        `);
-    });
-    
-    if (allBots.length === 0) lbContainer.html('<div style="text-align:center; opacity: 0.5;">ยังไม่มีประวัติการพูดคุย</div>');
-
-    $('#screentime-modal').addClass('show');
-    setTimeout(animateBars, 50);
 }
 
-function animateBars() {
-    $('.screentime-bar').each(function() {
-        const target = $(this).attr('data-target-height');
-        $(this).css('height', target);
+function showNotification(text, title = "New Message") {
+    $('.ios-vp-notif-title').text(title);
+    $('#ios-vp-notif-preview').text(text);
+    $notification.addClass('show');
+    
+    if (notifTimeout) clearTimeout(notifTimeout);
+    notifTimeout = setTimeout(hideNotification, 4000); // ซ่อนหลัง 4 วินาที
+}
+
+function hideNotification() {
+    $notification.removeClass('show');
+}
+
+// 5. ดึงแชททั้งหมด และดักจับ [SMS: ...]
+function refreshPhoneChat() {
+    const context = SillyTavern.getContext();
+    const chat = context.chat || [];
+    $chatArea.empty();
+
+    const smsRegex = /\[SMS:\s*([\s\S]*?)\]/gi;
+
+    chat.forEach(mes => {
+        let match;
+        // ใช้ RegExp loop เผื่อมีหลาย SMS ใน 1 ข้อความ
+        const regex = new RegExp(smsRegex);
+        while ((match = regex.exec(mes.mes)) !== null) {
+            const smsText = match[1].trim();
+            const isUser = mes.is_user;
+            const bubbleHtml = `<div class="ios-vp-bubble ${isUser ? 'sent' : 'received'}">${DOMPurify.sanitize(smsText)}</div>`;
+            $chatArea.append(bubbleHtml);
+        }
+    });
+    
+    // เลื่อนลงล่างสุดเสมอ
+    $chatArea.scrollTop($chatArea[0].scrollHeight);
+}
+
+// 6. การส่งข้อความกลับเข้าแชทหลัก
+function sendSMS() {
+    const text = $('#ios-vp-input').val().trim();
+    if (!text) return;
+    
+    // แปลงสิ่งที่พิมพ์ให้เป็นฟอร์แมต [SMS: ...] แล้วยัดลงแชทหลัก
+    const formattedText = `[SMS: ${text}]`;
+    const textarea = document.getElementById('send_textarea');
+    const sendBtn = document.getElementById('send_but');
+    
+    if (textarea && sendBtn) {
+        textarea.value = formattedText;
+        $(textarea).trigger('input'); // กระตุ้น event
+        sendBtn.click();
+        $('#ios-vp-input').val(''); // ล้างช่องพิมพ์
+        
+        // จำลองการเพิ่มแชทฝั่งเราชั่วคราวก่อนแชทหลักอัปเดต
+        $chatArea.append(`<div class="ios-vp-bubble sent">${DOMPurify.sanitize(text)}</div>`);
+        $chatArea.scrollTop($chatArea[0].scrollHeight);
+    }
+}
+
+// 7. จัดการรูปไอคอน (ย่อรูป + แปลง Base64)
+function setupSettingsUI() {
+    $('#ios_vp_icon_upload').on('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = function() {
+                // สร้าง Canvas เพื่อย่อขนาดรูป (กันไฟล์เซฟใหญ่เกินไป)
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 120;
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > height) {
+                    if (width > MAX_SIZE) {
+                        height *= MAX_SIZE / width;
+                        width = MAX_SIZE;
+                    }
+                } else {
+                    if (height > MAX_SIZE) {
+                        width *= MAX_SIZE / height;
+                        height = MAX_SIZE;
+                    }
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                const base64 = canvas.toDataURL('image/png');
+                settings.iconBase64 = base64;
+                saveSettings();
+                
+                $floatingBtn.css('background-image', `url(${base64})`);
+                toastr.success('เปลี่ยนรูปไอคอนปุ่มลอยสำเร็จ!');
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    $('#ios_vp_reset_btn').on('click', () => {
+        settings.iconBase64 = '';
+        settings.posX = 20;
+        settings.posY = 20;
+        saveSettings();
+        $floatingBtn.css({
+            right: '20px', 
+            bottom: '20px',
+            'background-image': `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23333"><path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z"/></svg>')`
+        });
+        toastr.info('รีเซ็ตการตั้งค่าเรียบร้อย');
     });
 }
 
+// 8. Hook ST Events: ซ่อน [SMS] จากแชทหลัก และแจ้งเตือน
+function onMessageRendered(data) {
+    // data คือ object ของ event { mesId, message (HTML element), etc. }
+    const htmlEl = $(data.message).find('.mes_text');
+    let textHtml = htmlEl.html();
+    
+    if (textHtml && textHtml.includes('[SMS:')) {
+        const smsRegex = /\[SMS:\s*([\s\S]*?)\]/gi;
+        
+        // ซ่อนข้อความ SMS จากหน้าจอหลัก
+        const newHtml = textHtml.replace(smsRegex, '<span style="display:none;" class="ios-vp-hidden">$&</span>');
+        htmlEl.html(newHtml);
+    }
+}
+
+function onMessageReceived(data) {
+    const mes = data; // data คือข้อความล่าสุด
+    const smsRegex = /\[SMS:\s*([\s\S]*?)\]/i;
+    const match = mes.mes.match(smsRegex);
+    
+    if (match) {
+        const smsText = match[1].trim();
+        const sender = mes.name || 'Unknown';
+        
+        // แจ้งเตือน!
+        showNotification(smsText, sender);
+        
+        // อัปเดตแชทในมือถือถ้าเปิดอยู่
+        if (isPhoneOpen) refreshPhoneChat();
+    }
+}
+
+// === จุดเริ่มต้นการทำงาน (Init) ===
 jQuery(async () => {
-    context = SillyTavern.getContext();
+    const context = SillyTavern.getContext();
+    
+    await loadSettings();
+    injectUI();
 
-    if (!context.extensionSettings[MODULE_NAME]) {
-        context.extensionSettings[MODULE_NAME] = defaultSettings;
-    }
-
-    const repoName = 'st-screentime-stats'; // ควรสอดคล้องกับชื่อโฟลเดอร์ repository บน GitHub
-    const settingsHtml = await context.renderExtensionTemplateAsync(`third-party/${repoName}`, 'settings', {});
+    // Render หน้าตั้งค่า
+    const settingsHtml = await context.renderExtensionTemplateAsync(extensionFolderPath, 'settings.html', {});
     $('#extensions_settings').append(settingsHtml);
+    setupSettingsUI();
 
-    $('#screentime_idle_timeout').on('input', function () {
-        context.extensionSettings[MODULE_NAME].idleTimeout = parseInt($(this).val()) || 5;
-        context.saveSettingsDebounced();
-    });
-    $('#screentime_idle_timeout').val(context.extensionSettings[MODULE_NAME].idleTimeout);
-
-    // ผูกปุ่มในหน้าตั้งค่าเข้ากับฟังก์ชันเปิด Dashboard
-    $('#screentime_show_dashboard').on('click', renderDashboard);
-
-    await loadStatsData();
-
-    ['mousemove', 'keydown', 'touchstart'].forEach(evt => {
-        document.addEventListener(evt, resetIdleTimer, { passive: true });
-    });
-
-    context.eventSource.on(context.event_types.CHAT_CHANGED, () => {
-        resetIdleTimer();
-        currentSessionMinutes = 0; 
-    });
-
-    context.eventSource.on(context.event_types.MESSAGE_SENT, () => {
-        resetIdleTimer();
-        incrementStat('msgs', 1);
-    });
-
-    context.eventSource.on(context.event_types.MESSAGE_RECEIVED, () => {
-        incrementStat('msgs', 1);
-    });
-
-    startTrackingLoop();
+    // ซ่อนข้อความจากทั้งฝ่ายเราและตัวละคร
+    context.eventSource.on(context.event_types.CHARACTER_MESSAGE_RENDERED, onMessageRendered);
+    context.eventSource.on(context.event_types.USER_MESSAGE_RENDERED, onMessageRendered);
+    
+    // ดักแจ้งเตือนตอนบอทส่งข้อความมาใหม่
+    context.eventSource.on(context.event_types.MESSAGE_RECEIVED, onMessageReceived);
 });
