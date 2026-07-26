@@ -1,23 +1,25 @@
-<div class="st-screentime-settings">
+<!-- path: public/scripts/extensions/third-party/ios-virtual-phone/settings.html -->
+<div class="ios-vp-settings-container">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>⏱️ Screen Time Stats</b>
+            <b>📱 iOS Virtual Phone Settings</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <label for="screentime_idle_timeout">
-                หยุดนับเวลาอัตโนมัติเมื่อไม่ขยับเมาส์/พิมพ์ (นาที)
-            </label>
-            <input id="screentime_idle_timeout" class="text_pole" type="number" min="1" max="60" value="5" />
-            <small>ระบบจะบันทึกสถิติรายตัวละครแบบถาวร (Lifetime Data)</small>
-            
-            <hr style="margin: 15px 0; border-color: var(--SmartThemeBorder);">
-            
-            <div style="display: flex; justify-content: center; padding-bottom: 10px;">
-                <button id="screentime_show_dashboard" class="menu_button" style="width: 100%; font-weight: bold;">
-                    <i class="fa-solid fa-chart-column"></i> เปิดหน้าต่างสถิติ (Dashboard)
-                </button>
+            <p>เปลี่ยนไอคอนของปุ่มมือถือลอย (แนะนำรูปสี่เหลี่ยมจัตุรัส)</p>
+            <div class="flex-container alignitemscenter margin-bottom-1">
+                <input type="file" id="ios_vp_icon_upload" accept="image/png, image/jpeg, image/gif, image/webp" class="text_pole">
             </div>
+            <div class="margin-bottom-1">
+                <button id="ios_vp_reset_btn" class="menu_button">รีเซ็ตตำแหน่ง & ไอคอนกลับเป็นค่าเริ่มต้น</button>
+            </div>
+            <hr>
+            <p><b>วิธีใช้งาน:</b></p>
+            <ul style="font-size: 0.9em; opacity: 0.8; padding-left: 20px;">
+                <li>ให้ AI หรือคุณพิมพ์ <code>[SMS: ข้อความของคุณ]</code> ลงในแชท</li>
+                <li>ระบบจะซ่อนข้อความนั้นจากหน้าแชทหลัก และเด้งแจ้งเตือนเข้ามือถือแทน</li>
+                <li>คุณสามารถลากย้ายปุ่มมือถือได้อิสระ</li>
+            </ul>
         </div>
     </div>
 </div>
