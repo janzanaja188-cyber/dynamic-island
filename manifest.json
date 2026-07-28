@@ -1,10 +1,12 @@
 {
-    "display_name": "iOS Virtual Phone",
-    "version": "1.0.0",
-    "author": "SillyTavern Extension Architect",
-    "description": "เพิ่มสมาร์ทโฟนจำลองพร้อมระบบแจ้งเตือนแบบ iOS เพื่อการโรลเพลย์ที่สมจริง",
+    "display_name": "Screen Time Stats",
+    "loading_order": 100,
     "js": "index.js",
     "css": "style.css",
+    "author": "ม่านฝัน & Dev",
+    "version": "0.1.0",
     "auto_update": true,
-    "minimum_client_version": "1.10.0"
+    "hooks": {
+        "activate": "onActivate"
+    }
 }
