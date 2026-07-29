@@ -75,3 +75,23 @@
     height: 34px;              /* นิ้วโป้งกดโดนง่ายบนมือถือ */
     accent-color: var(--SmartThemeQuoteColor);
 }
+
+.sts-btn-row {
+    display: flex;
+    gap: 6px;
+    margin: 6px 0;
+}
+
+.sts-btn-row .menu_button {
+    flex: 1 1 0;
+    min-height: 34px;          /* กดโดนง่ายด้วยนิ้วโป้ง */
+    font-size: 0.82em;
+    white-space: nowrap;
+}
+
+.sts-btn-row .sts-danger {
+    opacity: 0.75;
+    border-color: var(--SmartThemeBorderColor);
+}
+
+.sts-btn-row .sts-danger:hover { opacity: 1; }
