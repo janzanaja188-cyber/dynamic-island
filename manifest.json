@@ -4,9 +4,5 @@
     "js": "index.js",
     "css": "style.css",
     "author": "maanfhun",
-    "version": "0.1.0",
-    "auto_update": true,
-    "hooks": {
-        "activate": "onActivate"
-    }
+    "version": "0.1.1"
 }
