@@ -1,5 +1,5 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Screen Time Stats · v0.6.0 (Stage 5) — ตัวนับเวลาจริง (ไฟล์เต็ม วางทับได้เลย)
+// Screen Time Stats · v0.7.0 (Stage 6) — นับสด + กันปั๊มข้อความ + โพเดียมอันดับ
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
@@ -7,17 +7,18 @@ const LS_MIRROR = `${MODULE_NAME}:mirror`;
 const DEMO_PREFIX = 'demo:';
 const MENU_ITEM_ID = 'sts_menu_item';
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-const TICK_MS = 15000;   // จังหวะบวกเวลาเข้ายอด ทุก 15 วินาที
+const TICK_MS = 5000;        // เขียนยอดลงฐานข้อมูลทุก 5 วินาที
+const MSG_GAP_MS = 1500;     // ข้อความห่างกันน้อยกว่านี้ = ไม่นับ (กันยิงรัว)
 
 window.STS_LOADED = 'parsed';
 console.log(`${LOG} 1/3 อ่านไฟล์แล้ว`);
 
 const DEFAULTS = {
-    version: 6,
+    version: 7,
     idleMinutes: 5,
     hideNames: false,
-    daily: {},   // คีย์ตัวละคร → { 'YYYYMMDD(พ.ศ.)': [ms, ข้อความเรา, ข้อความบอท] }
-    meta: {},    // คีย์ตัวละคร → { name, lastSeen }
+    daily: {},   // คีย์ตัวละคร → { 'YYYYMMDD(พ.ศ.)': [ms, 0, ข้อความบอท] }
+    meta: {},    // คีย์ตัวละคร → { name, avatar, lastSeen }
 };
 
 /* ══════════ ที่เก็บข้อมูล ══════════ */
@@ -46,8 +47,7 @@ function getSettings() {
 
 function saveSettings() {
     const s = getSettings();
-    let serverOk = false;
-    try { SillyTavern.getContext().saveSettingsDebounced(); serverOk = true; }
+    try { SillyTavern.getContext().saveSettingsDebounced(); }
     catch (err) { console.warn(`${LOG} saveSettingsDebounced พลาด`, err); }
     try { localStorage.setItem(LS_MIRROR, JSON.stringify(s)); }
     catch (err) { console.warn(`${LOG} เขียน localStorage พลาด`, err); }
@@ -76,6 +76,14 @@ function shortMinutes(ms) {
     return m ? `${h}ชม${m}` : `${h}ชม`;
 }
 
+/** ชม:นาที:วินาที สำหรับนาฬิกาเดินสด */
+function fmtClock(ms) {
+    const t = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    const pad = n => String(n).padStart(2, '0');
+    return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 function lastDays(n) {
     const out = [];
     for (let i = n - 1; i >= 0; i--) {
@@ -95,7 +103,7 @@ function seriesByDay(days) {
         for (const key of Object.keys(s.daily)) {
             const row = s.daily[key]?.[day.key];
             if (!row) continue;
-            ms += row[0]; msg += row[1] + row[2];
+            ms += row[0]; msg += (row[1] || 0) + (row[2] || 0);
         }
         return { ...day, ms, msg };
     });
@@ -110,10 +118,14 @@ function rankBy(days, field) {
         for (const dk of Object.keys(s.daily[key])) {
             if (!want.has(dk)) continue;
             const row = s.daily[key][dk];
-            ms += row[0]; msg += row[1] + row[2];
+            ms += row[0]; msg += (row[1] || 0) + (row[2] || 0);
         }
         if (!ms && !msg) continue;
-        bucket.push({ key, name: s.meta[key]?.name || key, ms, msg });
+        bucket.push({
+            key, ms, msg,
+            name: s.meta[key]?.name || key,
+            avatar: s.meta[key]?.avatar || null,
+        });
     }
     bucket.sort((a, b) => b[field] - a[field]);
     return bucket;
@@ -126,17 +138,33 @@ function currentTarget() {
         const ctx = SillyTavern.getContext();
         if (ctx.groupId) {
             const g = (ctx.groups || []).find(x => String(x.id) === String(ctx.groupId));
-            return { key: `group:${ctx.groupId}`, name: g?.name || 'กลุ่มไม่มีชื่อ' };
+            return { key: `group:${ctx.groupId}`, name: g?.name || 'กลุ่มไม่มีชื่อ', avatar: null };
         }
         const ch = ctx.characters?.[ctx.characterId];
-        if (ch?.avatar) return { key: ch.avatar, name: ch.name || ch.avatar };
+        if (ch?.avatar) return { key: ch.avatar, name: ch.name || ch.avatar, avatar: ch.avatar };
     } catch (err) { console.warn(`${LOG} อ่านตัวละครปัจจุบันไม่ได้`, err); }
     return null;
 }
 
-/* ══════════ เขียนยอด (เวลา + ข้อความ) ══════════ */
+/** path รูปอวาตาร์ของ ST */
+function avatarUrl(file) {
+    if (!file) return null;
+    return `characters/${encodeURIComponent(file)}`;
+}
 
-function addTime(key, name, whenMs, ms) {
+/* ══════════ เขียนยอด ══════════ */
+
+function touchMeta(key, name, avatar) {
+    const s = getSettings();
+    const m = s.meta[key] || {};
+    s.meta[key] = {
+        name: name || m.name || key,
+        avatar: avatar || m.avatar || null,
+        lastSeen: dateKey(),
+    };
+}
+
+function addTime(key, name, avatar, whenMs, ms) {
     if (ms <= 0) return;
     const s = getSettings();
     const dk = dateKey(new Date(whenMs));
@@ -144,41 +172,44 @@ function addTime(key, name, whenMs, ms) {
     const row = s.daily[key][dk] || [0, 0, 0];
     row[0] += ms;
     s.daily[key][dk] = row;
-    s.meta[key] = { name: name || s.meta[key]?.name || key, lastSeen: dk };
+    touchMeta(key, name, avatar);
 }
 
-function addMsg(key, name, kind) {
+function addBotMsg(key, name, avatar) {
     const s = getSettings();
     const dk = dateKey();
     s.daily[key] = s.daily[key] || {};
     const row = s.daily[key][dk] || [0, 0, 0];
-    if (kind === 'user') row[1] += 1; else row[2] += 1;
+    row[2] += 1;
     s.daily[key][dk] = row;
-    s.meta[key] = { name: name || s.meta[key]?.name || key, lastSeen: dk };
+    touchMeta(key, name, avatar);
     saveSettings();
 }
 
 /* ══════════ ★ ตัวนับเวลาจริง ══════════ */
 
-let liveKey = null;        // ตัวละครที่กำลังนับ
+let liveKey = null;
 let liveName = null;
-let activeSince = 0;       // เวลาที่เริ่มนับช่วงนี้ (0 = ไม่ได้นับ)
-let lastActivity = 0;      // เวลาที่ขยับล่าสุด
+let liveAvatar = null;
+let activeSince = 0;       // เวลาที่เริ่มนับช่วงนี้ (0 = หยุดพัก)
+let lastActivity = 0;
 let domThrottle = 0;
 let trackerReady = false;
+let lastMsgStamp = 0;      // เวลาข้อความบอทล่าสุดที่นับไป
+let seenMsgIds = new Set(); // ลายนิ้วมือข้อความที่นับแล้ว กันปัด/รีเจนซ้ำ
 
 function markActivity() {
     const now = Date.now();
     lastActivity = now;
-    // ถ้าหยุดพักอยู่แล้วมีการขยับ + เปิดห้องอยู่ + จอไม่ได้ถูกซ่อน → เริ่มนับใหม่
     if (activeSince === 0 && liveKey && document.visibilityState === 'visible') {
         activeSince = now;
+        console.log(`${LOG} ▶ นับต่อ ${liveName}`);
     }
 }
 
 function onDomActivity() {
     const now = Date.now();
-    if (now - domThrottle < 3000) return;   // ลดการยิงถี่เกินไป
+    if (now - domThrottle < 3000) return;
     domThrottle = now;
     markActivity();
 }
@@ -191,17 +222,16 @@ function commit(endTs) {
     let changed = false;
     while (endTs > start) {
         const d = new Date(start);
-        const nextMid = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime(); // เที่ยงคืนถัดไป
+        const nextMid = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
         const segEnd = Math.min(endTs, nextMid);
         const ms = segEnd - start;
-        if (ms > 0) { addTime(liveKey, liveName, start, ms); changed = true; }
+        if (ms > 0) { addTime(liveKey, liveName, liveAvatar, start, ms); changed = true; }
         start = segEnd;
     }
     activeSince = endTs;
     if (changed) saveSettings();
 }
 
-/** เต้นทุก 15 วิ: ถ้าว่างเกิน idle → ปิดยอดแค่ถึงตอนขยับล่าสุด ; ถ้ายัง active → บวกต่อ */
 function tick() {
     if (!liveKey || activeSince === 0) return;
     const now = Date.now();
@@ -216,11 +246,13 @@ function tick() {
 }
 
 function onChatChanged() {
-    commit(Date.now());     // ปิดยอดตัวเก่าก่อน
+    commit(Date.now());
     activeSince = 0;
+    seenMsgIds = new Set();     // เปลี่ยนห้อง = ล้างลายนิ้วมือของห้องเก่า
     const t = currentTarget();
     liveKey = t?.key || null;
     liveName = t?.name || null;
+    liveAvatar = t?.avatar || null;
     if (liveKey && document.visibilityState === 'visible') {
         activeSince = Date.now();
         lastActivity = Date.now();
@@ -231,20 +263,56 @@ function onChatChanged() {
 function onVisibility() {
     if (document.visibilityState === 'hidden') {
         commit(Date.now());
-        activeSince = 0;     // สลับแอป/ปิดจอ = หยุดทันที
+        activeSince = 0;
     } else if (liveKey) {
         activeSince = Date.now();
         lastActivity = Date.now();
     }
 }
 
-function onMessage(kind) {
+/** ★ ลายนิ้วมือข้อความ — ปัด/รีเจน/ข้อความเดิม จะได้ลายซ้ำแล้วไม่ถูกนับ */
+function fingerprintLastBotMsg() {
+    try {
+        const chat = SillyTavern.getContext()?.chat;
+        if (!Array.isArray(chat) || !chat.length) return null;
+        const idx = chat.length - 1;
+        const m = chat[idx];
+        if (!m || m.is_user) return null;                  // ข้อความฝั่งเราไม่นับเลย
+        if (m.is_system) return null;                      // ข้อความระบบไม่นับ
+        const text = String(m.mes || '');
+        if (!text.trim()) return null;
+        const swipeCount = Array.isArray(m.swipes) ? m.swipes.length : 0;
+        // ตำแหน่ง + จำนวน swipe + ความยาว + หัวท้ายข้อความ
+        return `${idx}|${swipeCount}|${text.length}|${text.slice(0, 24)}|${text.slice(-24)}`;
+    } catch (err) {
+        console.warn(`${LOG} ทำลายนิ้วมือข้อความไม่ได้`, err);
+        return null;
+    }
+}
+
+function onBotMessage() {
     markActivity();
     if (!liveKey) {
         const t = currentTarget();
-        if (t) { liveKey = t.key; liveName = t.name; }
+        if (t) { liveKey = t.key; liveName = t.name; liveAvatar = t.avatar; }
     }
-    if (liveKey) addMsg(liveKey, liveName, kind);
+    if (!liveKey) return;
+
+    const now = Date.now();
+    if (now - lastMsgStamp < MSG_GAP_MS) {
+        console.log(`${LOG} ✋ ข้อความถี่เกินไป ไม่นับ`);
+        return;
+    }
+
+    const fp = fingerprintLastBotMsg();
+    if (!fp) { console.log(`${LOG} ✋ ไม่ใช่ข้อความบอทใหม่ ไม่นับ`); return; }
+    if (seenMsgIds.has(fp)) { console.log(`${LOG} ✋ ข้อความซ้ำ (ปัด/รีเจน) ไม่นับ`); return; }
+
+    seenMsgIds.add(fp);
+    if (seenMsgIds.size > 400) seenMsgIds = new Set([...seenMsgIds].slice(-200));
+    lastMsgStamp = now;
+    addBotMsg(liveKey, liveName, liveAvatar);
+    console.log(`${LOG} 💬 นับข้อความบอท +1 (${liveName})`);
 }
 
 function flushNow() {
@@ -261,8 +329,10 @@ function startTracker() {
 
     const ev = ctx.event_types;
     if (ev.CHAT_CHANGED) ctx.eventSource.on(ev.CHAT_CHANGED, onChatChanged);
-    if (ev.MESSAGE_SENT) ctx.eventSource.on(ev.MESSAGE_SENT, () => onMessage('user'));
-    if (ev.MESSAGE_RECEIVED) ctx.eventSource.on(ev.MESSAGE_RECEIVED, () => onMessage('bot'));
+    if (ev.CHARACTER_MESSAGE_RENDERED) ctx.eventSource.on(ev.CHARACTER_MESSAGE_RENDERED, onBotMessage);
+    else if (ev.MESSAGE_RECEIVED) ctx.eventSource.on(ev.MESSAGE_RECEIVED, onBotMessage);
+    // ข้อความฝั่งผู้ใช้: ถือเป็นแค่ "การขยับ" ไม่นับเป็นสถิติ
+    if (ev.MESSAGE_SENT) ctx.eventSource.on(ev.MESSAGE_SENT, markActivity);
 
     document.addEventListener('visibilitychange', onVisibility);
     document.addEventListener('touchstart', onDomActivity, { passive: true });
@@ -271,10 +341,10 @@ function startTracker() {
     window.addEventListener('beforeunload', flushNow);
 
     setInterval(tick, TICK_MS);
-    onChatChanged();   // จับตัวละครที่เปิดค้างอยู่ตอนนี้
+    onChatChanged();
 
     trackerReady = true;
-    console.log(`${LOG} ⏱️ ตัวนับเวลาเริ่มทำงานแล้ว`);
+    console.log(`${LOG} ⏱️ ตัวนับเวลาเริ่มทำงานแล้ว (เขียนทุก ${TICK_MS / 1000} วิ)`);
     return true;
 }
 
@@ -284,19 +354,7 @@ const stsTrackTimer = setInterval(() => {
     if (startTracker() || trackTries >= 120) clearInterval(stsTrackTimer);
 }, 500);
 
-/* ══════════ ข้อมูลตัวอย่าง + ปุ่มเทส ══════════ */
-
-function bump(key, name, ms, mine, theirs) {
-    const s = getSettings();
-    const dk = dateKey();
-    s.daily[key] = s.daily[key] || {};
-    const row = s.daily[key][dk] || [0, 0, 0];
-    row[0] += ms; row[1] += mine; row[2] += theirs;
-    s.daily[key][dk] = row;
-    s.meta[key] = { name, lastSeen: dk };
-    saveSettings();
-    return row;
-}
+/* ══════════ ข้อมูลตัวอย่าง ══════════ */
 
 function say(msg, type = 'info') {
     if (typeof toastr !== 'undefined' && toastr[type]) toastr[type](msg, 'Screen Time Stats');
@@ -309,6 +367,8 @@ function seedDemo() {
         [`${DEMO_PREFIX}mira`, 'Mira'],
         [`${DEMO_PREFIX}kite`, 'ไคท์'],
         [`${DEMO_PREFIX}noon`, 'นุ่น'],
+        [`${DEMO_PREFIX}rin`, 'ริน'],
+        [`${DEMO_PREFIX}ozzy`, 'ออซซี่'],
     ];
     for (const [key, name] of cast) {
         s.daily[key] = s.daily[key] || {};
@@ -316,13 +376,12 @@ function seedDemo() {
             const d = new Date();
             d.setDate(d.getDate() - i);
             const mins = 8 + Math.floor(Math.random() * 95);
-            const mine = 3 + Math.floor(Math.random() * 45);
-            s.daily[key][dateKey(d)] = [mins * 60000, mine, Math.max(1, mine - 1)];
+            s.daily[key][dateKey(d)] = [mins * 60000, 0, 2 + Math.floor(Math.random() * 40)];
         }
-        s.meta[key] = { name, lastSeen: dateKey() };
+        s.meta[key] = { name, avatar: null, lastSeen: dateKey() };
     }
     saveSettings();
-    say('ใส่ข้อมูลตัวอย่าง 7 วัน 3 ตัวละครแล้ว', 'success');
+    say('ใส่ข้อมูลตัวอย่าง 7 วัน 5 ตัวละครแล้ว', 'success');
 }
 
 function clearDemo() {
@@ -356,7 +415,85 @@ function countUp(node, target, suffix = '') {
     requestAnimationFrame(frame);
 }
 
-/* ══════════ การ์ดแต่ละใบ ══════════ */
+/** วงกลมรูปอวาตาร์ โหลดไม่ได้ก็ใช้ตัวอักษรแรกของชื่อ */
+function avatarNode(entry, size, ringColor) {
+    const box = el('div');
+    box.style.cssText = [
+        `width:${size}px`, `height:${size}px`, 'border-radius:50%',
+        'overflow:hidden', 'flex:0 0 auto',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        `border:2px solid ${ringColor}`,
+        'background:rgba(127,127,127,0.18)',
+        `font-size:${Math.round(size / 2.4)}px`, 'font-weight:700',
+        'box-shadow:0 4px 14px rgba(0,0,0,0.35)',
+    ].join(';');
+
+    const url = avatarUrl(entry.avatar);
+    if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = '';
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        img.addEventListener('error', () => {
+            img.remove();
+            box.textContent = (entry.name || '?').trim().charAt(0).toUpperCase();
+        });
+        box.append(img);
+    } else {
+        box.textContent = (entry.name || '?').trim().charAt(0).toUpperCase();
+    }
+    return box;
+}
+
+/* ══════════ การ์ด: สรุป + นาฬิกาเดินสด ══════════ */
+
+let liveTimer = null;
+
+function buildLive() {
+    const card = el('div', 'sts-card');
+    card.append(el('div', 'sts-card-cap', 'กำลังนับอยู่'));
+
+    const rowTop = el('div');
+    rowTop.style.cssText = 'display:flex;align-items:center;gap:12px';
+
+    const who = el('div');
+    who.style.cssText = 'flex:1 1 auto;min-width:0';
+    const nameLine = el('div', null, liveName || 'ยังไม่ได้เปิดห้องแชท');
+    nameLine.style.cssText = 'font-size:0.95em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const stateLine = el('div', 'sts-hint');
+    stateLine.id = 'sts_live_state';
+    stateLine.style.cssText = 'margin:2px 0 0';
+    who.append(nameLine, stateLine);
+
+    const clock = el('div');
+    clock.id = 'sts_live_clock';
+    clock.style.cssText = [
+        'flex:0 0 auto', 'font-size:1.7em', 'font-weight:700', 'line-height:1',
+        'font-variant-numeric:tabular-nums',
+        'color:var(--SmartThemeQuoteColor, #8ab4ff)',
+    ].join(';');
+    clock.textContent = '0:00';
+
+    rowTop.append(who, clock);
+    card.append(rowTop);
+
+    // เดินสดทุกวินาที: ยอดที่เขียนแล้ว + ช่วงที่ยังนับค้างอยู่
+    function paint() {
+        const c = document.getElementById('sts_live_clock');
+        const st = document.getElementById('sts_live_state');
+        if (!c || !st) { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } return; }
+        const saved = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
+        const pending = activeSince > 0 ? (Date.now() - activeSince) : 0;
+        c.textContent = fmtClock(saved + pending);
+        const msgs = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[2] || 0) : 0;
+        st.textContent = `${activeSince > 0 ? '🟢 กำลังนับ' : '⚪ หยุดพัก'} · วันนี้ ${msgs} ข้อความจากบอท`;
+    }
+    paint();
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(paint, 1000);
+
+    return card;
+}
 
 function buildSummary(rows) {
     const totalMs = rows.reduce((a, r) => a + r.ms, 0);
@@ -373,7 +510,7 @@ function buildSummary(rows) {
     countUp(num, Math.round(totalMs / 60000));
 
     const chips = el('div', 'sts-chips');
-    for (const [k, v] of [['เฉลี่ย/วัน', `${avgMin} นาที`], ['ข้อความ', `${totalMsg}`]]) {
+    for (const [k, v] of [['เฉลี่ย/วัน', `${avgMin} นาที`], ['ข้อความจากบอท', `${totalMsg}`]]) {
         const c = el('div', 'sts-chip');
         c.append(el('span', 'sts-chip-k', k), el('span', 'sts-chip-v', v));
         chips.append(c);
@@ -414,64 +551,151 @@ function buildChart(rows) {
     return card;
 }
 
-function buildRanks(days) {
+/* ══════════ ★ โพเดียมอันดับ ══════════ */
+
+function buildPodium(days) {
     const s = getSettings();
-    const medals = ['🥇', '🥈', '🥉', '4', '5'];
     const card = el('div', 'sts-card');
     card.append(el('div', 'sts-card-cap', 'อันดับ'));
 
     const tabs = el('div', 'sts-tabs');
     const wrap = el('div');
-    const lists = {};
+    const views = {};
 
-    function makeList(field) {
-        const list = el('div', 'sts-ranks');
-        const top = rankBy(days, field).slice(0, 5);
+    // แท่ง: [ตำแหน่งบนจอ, อันดับจริง, ความสูงแท่น, สีเหรียญ, ป้าย]
+    const SLOTS = [
+        { rank: 2, h: 52, color: '#c0c6d4', label: '2' },
+        { rank: 1, h: 84, color: '#ffd45e', label: '1' },
+        { rank: 3, h: 34, color: '#d99a6c', label: '3' },
+    ];
+
+    function makeView(field) {
+        const view = el('div');
+        const top = rankBy(days, field);
         if (!top.length) {
-            list.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้ — กดใส่ข้อมูลตัวอย่างดูก่อนได้'));
-            return { node: list, animated: true };
+            view.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้ — กดใส่ข้อมูลตัวอย่างดูก่อนได้'));
+            return { node: view, animated: true };
         }
-        const peak = top[0][field] || 1;
-        top.forEach((r, i) => {
-            const row = el('div', 'sts-rank');
-            row.append(el('div', 'sts-medal', medals[i]));
 
-            const mid = el('div', 'sts-rank-mid');
-            mid.append(el('div', 'sts-rank-name', s.hideNames ? `ตัวละคร ${i + 1}` : r.name));
+        const stage = el('div');
+        stage.style.cssText = [
+            'display:flex', 'align-items:flex-end', 'justify-content:center',
+            'gap:8px', 'padding:14px 0 2px',
+        ].join(';');
 
-            const bar = el('div', 'sts-rank-track');
-            const f = el('div', 'sts-rank-fill');
-            f.style.animation = 'none';
-            f.style.transition = 'width 0.55s cubic-bezier(0.2, 1, 0.3, 1)';
-            f.style.width = '0%';
-            f.dataset.w = String(Math.max(4, Math.round((r[field] / peak) * 100)));
-            bar.append(f);
-            mid.append(bar);
+        SLOTS.forEach((slot, order) => {
+            const r = top[slot.rank - 1];
+            const colWrap = el('div');
+            colWrap.style.cssText = 'flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0';
 
-            row.append(mid);
-            row.append(el('div', 'sts-rank-val',
-                field === 'ms' ? shortMinutes(r.ms) : `${r.msg} ข้อความ`));
-            list.append(row);
+            if (!r) {
+                // ไม่มีใครในอันดับนี้ — เว้นแท่นว่างไว้ให้เห็นโครง
+                const ghost = el('div');
+                ghost.style.cssText = [
+                    'width:100%', 'border-radius:12px 12px 0 0',
+                    `height:${slot.h}px`, 'background:rgba(127,127,127,0.10)',
+                ].join(';');
+                colWrap.append(ghost);
+                stage.append(colWrap);
+                return;
+            }
+
+            const nm = s.hideNames ? `ตัวละคร ${slot.rank}` : r.name;
+
+            if (slot.rank === 1) {
+                const crown = el('div', null, '👑');
+                crown.style.cssText = 'font-size:1.15em;line-height:1;margin-bottom:2px';
+                colWrap.append(crown);
+            }
+
+            colWrap.append(avatarNode(r, slot.rank === 1 ? 62 : 48, slot.color));
+
+            const name = el('div', null, nm);
+            name.style.cssText = [
+                'margin-top:6px', 'max-width:100%',
+                `font-size:${slot.rank === 1 ? '0.88em' : '0.8em'}`, 'font-weight:600',
+                'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap', 'text-align:center',
+            ].join(';');
+            colWrap.append(name);
+
+            const t = el('div', null, shortMinutes(r.ms));
+            t.style.cssText = [
+                'font-size:0.86em', 'font-weight:700', 'font-variant-numeric:tabular-nums',
+                'color:var(--SmartThemeQuoteColor, #8ab4ff)',
+            ].join(';');
+            colWrap.append(t);
+
+            const c = el('div', null, `${r.msg} ข้อความ`);
+            c.style.cssText = 'font-size:0.7em;opacity:0.6;margin-bottom:6px';
+            colWrap.append(c);
+
+            const block = el('div', 'sts-podium-block');
+            block.style.cssText = [
+                'width:100%', 'border-radius:12px 12px 0 0',
+                'height:0px', 'overflow:hidden',
+                'display:flex', 'align-items:center', 'justify-content:center',
+                `background:linear-gradient(180deg, ${slot.color}, rgba(127,127,127,0.16))`,
+                'transition:height 0.5s cubic-bezier(0.2, 1, 0.3, 1)',
+                `transition-delay:${order * 90}ms`,
+                'box-shadow:inset 0 1px 0 rgba(255,255,255,0.25)',
+            ].join(';');
+            block.dataset.h = String(slot.h);
+            const label = el('div', null, slot.label);
+            label.style.cssText = 'font-size:1.05em;font-weight:800;color:rgba(0,0,0,0.55)';
+            block.append(label);
+            colWrap.append(block);
+
+            stage.append(colWrap);
         });
-        return { node: list, animated: false };
+
+        view.append(stage);
+
+        // พื้นเวที
+        const floor = el('div');
+        floor.style.cssText = [
+            'height:4px', 'border-radius:99px', 'margin-bottom:10px',
+            'background:var(--SmartThemeBorderColor, rgba(255,255,255,0.18))',
+        ].join(';');
+        view.append(floor);
+
+        // อันดับ 4-5 ต่อท้าย
+        top.slice(3, 5).forEach((r, i) => {
+            const row = el('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 2px';
+            const no = el('div', null, String(i + 4));
+            no.style.cssText = 'flex:0 0 18px;text-align:center;font-size:0.8em;opacity:0.55;font-weight:700';
+            row.append(no, avatarNode(r, 28, 'rgba(127,127,127,0.35)'));
+
+            const mid = el('div');
+            mid.style.cssText = 'flex:1 1 auto;min-width:0;font-size:0.82em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+            mid.textContent = s.hideNames ? `ตัวละคร ${i + 4}` : r.name;
+            row.append(mid);
+
+            const val = el('div', null, field === 'ms' ? shortMinutes(r.ms) : `${r.msg} ข้อความ`);
+            val.style.cssText = 'flex:0 0 auto;font-size:0.78em;opacity:0.75;font-variant-numeric:tabular-nums';
+            row.append(val);
+            view.append(row);
+        });
+
+        return { node: view, animated: false };
     }
 
     function reveal(entry) {
-        for (const k in lists) lists[k].node.style.display = 'none';
+        for (const k in views) views[k].node.style.display = 'none';
         entry.node.style.display = '';
         if (entry.animated) return;
         entry.animated = true;
         requestAnimationFrame(() => {
-            entry.node.querySelectorAll('.sts-rank-fill').forEach(f => {
-                f.style.width = `${f.dataset.w || 0}%`;
+            entry.node.querySelectorAll('.sts-podium-block').forEach(b => {
+                b.style.height = `${b.dataset.h || 0}px`;
             });
         });
     }
 
     for (const [label, field] of [['คุยนานสุด', 'ms'], ['ข้อความเยอะสุด', 'msg']]) {
-        const entry = makeList(field);
+        const entry = makeView(field);
         entry.node.style.display = 'none';
-        lists[field] = entry;
+        views[field] = entry;
         wrap.append(entry.node);
 
         const b = el('button', 'sts-tab', label);
@@ -486,31 +710,16 @@ function buildRanks(days) {
 
     tabs.firstChild.classList.add('sts-tab-on');
     card.append(tabs, wrap);
-    reveal(lists['ms']);
+    reveal(views['ms']);
     return card;
 }
 
 function buildDevTools() {
     const card = el('div', 'sts-card sts-dev');
     card.append(el('div', 'sts-card-cap', 'เครื่องมือทดสอบ (จะซ่อนในเวอร์ชันจริง)'));
-
-    // แถบสถานะการนับสด
-    const counting = activeSince > 0;
-    const todayMs = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
-    const status = el('div', 'sts-hint');
-    status.textContent =
-        `นับอยู่: ${liveName || '(ยังไม่ได้เปิดห้อง)'} · ${counting ? '🟢 กำลังนับ' : '⚪ หยุดพัก'} · วันนี้ ${fmtMinutes(todayMs)}`;
-    card.append(status);
-
     const row = el('div', 'sts-btn-row');
     for (const [label, fn] of [
-        ['รีเฟรชสถานะ', () => renderSheet()],
-        ['＋1 นาที', () => {
-            const t = currentTarget();
-            if (!t) { say('เปิดห้องแชทก่อนนะครับ', 'warning'); return; }
-            bump(t.key, t.name, 60000, 1, 1);
-            renderSheet();
-        }],
+        ['วาดใหม่', () => renderSheet()],
         ['ใส่ตัวอย่าง', () => { seedDemo(); renderSheet(); }],
         ['ล้างตัวอย่าง', () => { clearDemo(); renderSheet(); }],
     ]) {
@@ -529,10 +738,10 @@ function renderSheet() {
     const days = lastDays(7);
     const rows = seriesByDay(days);
     body.textContent = '';
-    body.append(buildSummary(rows), buildChart(rows), buildRanks(days), buildDevTools());
+    body.append(buildLive(), buildSummary(rows), buildChart(rows), buildPodium(days), buildDevTools());
 }
 
-/* ══════════ เปิด / ปิดแผ่น — ใช้ <dialog> top-layer ══════════ */
+/* ══════════ เปิด / ปิดการ์ด — <dialog> top-layer ══════════ */
 
 function openSheet() {
     try {
@@ -623,8 +832,7 @@ function openSheet() {
         } else {
             dlg.style.display = 'flex';
         }
-
-        console.log(`${LOG} ✅ openSheet · dialog(top-layer) · bg=${cardBg}`);
+        console.log(`${LOG} ✅ openSheet · dialog(top-layer)`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
@@ -632,13 +840,14 @@ function openSheet() {
 }
 
 function closeSheet() {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }   // หยุดนาฬิกาสดตอนปิด
     const dlg = document.getElementById('sts_dialog');
     if (!dlg) return;
     if (typeof dlg.close === 'function' && dlg.open) dlg.close();
     else dlg.style.display = 'none';
 }
 
-/* ══════════ ทางเข้า: เมนูไม้กายสิทธิ์ (ไล่หา 4 ชั้น) ══════════ */
+/* ══════════ ทางเข้า: เมนูไม้กายสิทธิ์ ══════════ */
 
 function findMenu() {
     const direct = document.getElementById('extensionsMenu');
@@ -680,19 +889,14 @@ function mountMenuItem(reason) {
     const menu = findMenu();
     if (!menu) return false;
     menu.append(makeMenuItem());
-    console.log(`${LOG} ✅ ใส่บรรทัดในเมนูแล้ว (${reason}) · host=${menu.id || menu.className}`);
+    console.log(`${LOG} ✅ ใส่บรรทัดในเมนูแล้ว (${reason})`);
     return true;
 }
 
 let entryTries = 0;
 const stsEntryTimer = setInterval(() => {
     entryTries++;
-    if (mountMenuItem(`รอบที่ ${entryTries}`) || entryTries >= 60) {
-        clearInterval(stsEntryTimer);
-        if (!document.getElementById(MENU_ITEM_ID)) {
-            console.warn(`${LOG} ⚠️ ยังหาเมนูไม่เจอ — รอดักตอนกดปุ่มไม้กายสิทธิ์แทน`);
-        }
-    }
+    if (mountMenuItem(`รอบที่ ${entryTries}`) || entryTries >= 60) clearInterval(stsEntryTimer);
 }, 500);
 
 document.addEventListener('click', ev => {
@@ -711,25 +915,22 @@ try {
     console.warn(`${LOG} MutationObserver ใช้ไม่ได้`, err);
 }
 
-/* ══════════ คำสั่งเรียกมือ + ตรวจอาการ ══════════ */
+/* ══════════ คำสั่งเรียกมือ ══════════ */
 
 window.STS_OPEN = openSheet;
 window.STS_CLOSE = closeSheet;
-window.STS_FINDMENU = () => {
-    const m = findMenu();
-    console.log(`${LOG} findMenu →`, m);
-    return m ? (m.id || m.className) : 'ไม่เจอ';
-};
 window.STS_TRACK = () => {
     const now = Date.now();
+    const saved = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
     const out = {
         ตัวละครที่นับอยู่: liveName || '(ไม่มี)',
         กำลังนับ: activeSince > 0,
-        นับมาแล้ววินาที: activeSince > 0 ? Math.round((now - activeSince) / 1000) : 0,
+        ค้างอยู่วินาที: activeSince > 0 ? Math.round((now - activeSince) / 1000) : 0,
+        เขียนแล้ววันนี้: fmtClock(saved),
         ว่างมาแล้ววินาที: lastActivity ? Math.round((now - lastActivity) / 1000) : '-',
         หน้าจอ: document.visibilityState,
         idleนาที: getSettings().idleMinutes,
-        ตัวละครในฐานข้อมูล: Object.keys(getSettings().daily).length,
+        ลายนิ้วมือข้อความที่จำไว้: seenMsgIds.size,
     };
     console.table(out);
     return out;
@@ -745,7 +946,7 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 5 · v0.6.0</div>
+      <div class="sts-stage-tag">Stage 6 · v0.7.0</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
@@ -760,7 +961,7 @@ const PANEL_HTML = `
 
       <hr class="sysHR">
       <input id="sts_btn_open" class="menu_button" type="button" value="เปิดหน้ากราฟ">
-      <p class="sts-hint">ปกติเรียกจากไอคอนไม้กายสิทธิ์ → "เวลาบนหน้าจอ" · ตัวนับเวลาเดินเองแล้ว</p>
+      <p class="sts-hint">นับเวลาเดินสด · นับเฉพาะข้อความฝั่งบอท · ปัดหรือรีเจนไม่นับเพิ่ม</p>
     </div>
   </div>
 </div>`;
