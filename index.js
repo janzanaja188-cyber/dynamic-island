@@ -351,82 +351,124 @@ function renderSheet() {
 
 function openSheet() {
     try {
-        // ดึงสีธีมแล้วตัด alpha ทิ้ง บังคับทึบ 100% — แก้อาการจอจาง
-        let solidBg = '#181820';
-        try {
-            const raw = getComputedStyle(document.documentElement)
-                .getPropertyValue('--SmartThemeBlurTintColor').trim();
-            if (raw.startsWith('rgba')) {
-                const n = raw.match(/[\d.]+/g);
-                if (n && n.length >= 3) solidBg = `rgb(${n[0]}, ${n[1]}, ${n[2]})`;
-            } else if (raw.startsWith('rgb') || raw.startsWith('#')) {
-                solidBg = raw;
+        // ── แปลงสีธีมเป็นทึบ 100% รับทุกฟอร์แมต rgba/hsla/hex(3,6,8) ──
+        function toOpaque(raw, fallback) {
+            if (!raw) return fallback;
+            raw = raw.trim();
+            let m = raw.match(/rgba?\(([^)]+)\)/i);
+            if (m) {
+                const p = m[1].split(',').map(s => s.trim());
+                if (p.length >= 3) return `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
             }
-        } catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้ ใช้สีสำรอง`, e); }
+            m = raw.match(/hsla?\(([^)]+)\)/i);
+            if (m) {
+                const p = m[1].split(',').map(s => s.trim());
+                if (p.length >= 3) return `hsl(${p[0]}, ${p[1]}, ${p[2]})`;
+            }
+            if (raw[0] === '#') {
+                let h = raw.slice(1);
+                if (h.length === 4) h = h.slice(0, 3);       // #rgba → #rgb
+                else if (h.length === 8) h = h.slice(0, 6);  // #rrggbbaa → #rrggbb  ★ ตัวการจอจาง
+                return `#${h}`;
+            }
+            return fallback;
+        }
+
+        let tint = '';
+        try {
+            tint = getComputedStyle(document.documentElement)
+                .getPropertyValue('--SmartThemeBlurTintColor');
+        } catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้`, e); }
+        const cardBg = toOpaque(tint, '#1e1e26');
 
         let scrim = document.getElementById('sts_scrim');
         if (!scrim) {
+            // ── พื้นหรี่ (โปร่งได้ เพราะแค่หรี่แอปข้างหลัง) ──
             scrim = document.createElement('div');
             scrim.id = 'sts_scrim';
-            Object.assign(scrim.style, {
-                position: 'fixed', top: '0', right: '0', bottom: '0', left: '0',
-                display: 'flex', flexDirection: 'column', boxSizing: 'border-box',
-                color: 'var(--SmartThemeBodyColor, #eee)',
-                zIndex: '2147483647',
-                paddingTop: 'env(safe-area-inset-top, 0px)',
-                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-            });
+            scrim.style.cssText = [
+                'position:fixed', 'top:0', 'right:0', 'bottom:0', 'left:0',
+                'display:flex', 'align-items:center', 'justify-content:center',
+                'box-sizing:border-box',
+                'padding:14px',
+                'padding-top:max(14px, env(safe-area-inset-top, 0px))',
+                'padding-bottom:max(14px, env(safe-area-inset-bottom, 0px))',
+                'background:rgba(0,0,0,0.6)',
+                'z-index:2147483647',
+            ].join(';');
+
+            // ── การ์ด (ทึบ 100% เสมอ) ──
+            const card = document.createElement('div');
+            card.id = 'sts_card';
+            card.style.cssText = [
+                'width:100%', 'max-width:520px', 'max-height:100%',
+                'display:flex', 'flex-direction:column',
+                'box-sizing:border-box',
+                'border-radius:22px', 'overflow:hidden',
+                `background:${cardBg}`, 'opacity:1',
+                'color:var(--SmartThemeBodyColor, #eee)',
+                'border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
+                'box-shadow:0 20px 60px rgba(0,0,0,0.55)',
+            ].join(';');
 
             // หัว — ตรึงบนสุด ไม่เลื่อน
             const head = document.createElement('div');
-            Object.assign(head.style, {
-                flex: '0 0 auto', display: 'flex',
-                alignItems: 'center', justifyContent: 'space-between',
-                padding: '14px 16px 10px',
-                borderBottom: '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
-            });
+            head.style.cssText = [
+                'flex:0 0 auto', 'display:flex',
+                'align-items:center', 'justify-content:space-between',
+                'gap:10px', 'padding:14px 16px',
+                `background:${cardBg}`,
+                'border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
+            ].join(';');
+
             const title = document.createElement('div');
             title.textContent = '⏱️ เวลาบนหน้าจอ';
-            Object.assign(title.style, { fontSize: '1.1em', fontWeight: '600' });
+            title.style.cssText = 'font-size:1.1em;font-weight:600';
+
             const btnX = document.createElement('button');
-            btnX.textContent = '✕'; btnX.type = 'button';
-            Object.assign(btnX.style, {
-                width: '34px', height: '34px', borderRadius: '50%', flex: '0 0 auto',
-                background: 'transparent', color: 'inherit',
-                border: '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
-                cursor: 'pointer', opacity: '0.7',
-            });
+            btnX.type = 'button';
+            btnX.textContent = '✕ ปิด';
+            btnX.style.cssText = [
+                'flex:0 0 auto', 'cursor:pointer',
+                'padding:8px 14px', 'border-radius:999px',
+                'font-size:0.9em', 'font-weight:600',
+                'background:var(--SmartThemeQuoteColor, #8ab4ff)',
+                'color:var(--SmartThemeBlurTintColor, #111)',
+                'border:none',
+            ].join(';');
             btnX.addEventListener('click', closeSheet);
             head.append(title, btnX);
 
-            // เนื้อหา — เลื่อนได้ข้างใน (min-height:0 คือหัวใจ)
+            // เนื้อหา — เลื่อนได้ (min-height:0 คือหัวใจ)
             const body = document.createElement('div');
             body.id = 'sts_body';
-            Object.assign(body.style, {
-                flex: '1 1 auto', minHeight: '0',
-                overflowY: 'auto', overscrollBehavior: 'contain',
-                WebkitOverflowScrolling: 'touch',
-                width: '100%', maxWidth: '560px', margin: '0 auto',
-                padding: '12px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
-                boxSizing: 'border-box',
-            });
+            body.style.cssText = [
+                'flex:1 1 auto', 'min-height:0',
+                'overflow-y:auto', 'overscroll-behavior:contain',
+                '-webkit-overflow-scrolling:touch',
+                'padding:12px 16px 20px', 'box-sizing:border-box',
+            ].join(';');
 
-            scrim.append(head, body);
+            card.append(head, body);
+            scrim.append(card);
+            scrim.addEventListener('click', ev => { if (ev.target === scrim) closeSheet(); });
             document.body.append(scrim);
+        } else {
+            // เปิดซ้ำ — บังคับสีทึบใหม่ เผื่อสลับธีมกลางทาง
+            const card = document.getElementById('sts_card');
+            if (card) card.style.background = cardBg;
+            const head = card?.firstElementChild;
+            if (head) head.style.background = cardBg;
         }
-
-        // บังคับพื้นหลังทึบทุกครั้งที่เปิด เผื่อเปลี่ยนธีมกลางทาง
-        scrim.style.background = solidBg;
 
         renderSheet();
         scrim.style.display = 'flex';
-        console.log(`${LOG} ✅ openSheet · bg=${solidBg} · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
+        console.log(`${LOG} ✅ openSheet · card=${cardBg} · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
     }
 }
-
 
 function closeSheet() {
     const scrim = document.getElementById('sts_scrim');
