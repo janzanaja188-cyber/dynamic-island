@@ -3,7 +3,7 @@
     "loading_order": 100,
     "js": "index.js",
     "css": "style.css",
-    "author": "ม่านฝัน & Dev",
+    "author": "maanfhun",
     "version": "0.1.0",
     "auto_update": true,
     "hooks": {
