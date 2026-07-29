@@ -1,94 +1,97 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Stage 1 — โครงเปล่า: ทำให้ drawer โผล่ + รายงานสภาพเครื่อง
+// Stage 1-B — โหมดกันพัง: ไม่รออีเวนต์ ไม่โหลดไฟล์นอก ไม่แตะ getContext ตอนบูต
 
 const MODULE_NAME = 'screentime-stats';
-const TEMPLATE_DIR = `third-party/${MODULE_NAME}`;
 const LOG = `[${MODULE_NAME}]`;
 
-// ห้าม import จาก script.js — ทุกอย่างมาจาก getContext()
-const context = SillyTavern.getContext();
+// ธงตรวจชีวิต — พิมพ์ window.STS_LOADED ใน console แล้วรู้ผลทันที
+window.STS_LOADED = 'parsed';
+console.log(`${LOG} 1/3 ไฟล์ถูกอ่านแล้ว`);
 
-/** hook: activate — ยิงตอน loader ยังบังจออยู่ ใช้แค่ log ใน Stage นี้ */
-export function onActivate() {
-    console.log(`${LOG} activate hook fired`);
+const PANEL_HTML = `
+<div class="sts-settings" id="sts_panel">
+  <div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+      <b>⏱️ Screen Time Stats</b>
+      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content">
+      <div class="sts-stage-tag">Stage 1-B · โครงเปล่า</div>
+      <p class="sts-hint">โหลดสำเร็จ ยังไม่มีการนับเวลาใด ๆ</p>
+      <div id="sts_probe" class="sts-probe">กำลังตรวจ...</div>
+    </div>
+  </div>
+</div>`;
+
+function probe() {
+    let shareFiles = false;
+    try {
+        const f = new File([new Blob(['x'])], 'p.png', { type: 'image/png' });
+        shareFiles = typeof navigator.canShare === 'function' && navigator.canShare({ files: [f] });
+    } catch (err) {
+        console.warn(`${LOG} canShare ไม่ผ่าน`, err);
+    }
+    let settingsWritable = false;
+    try {
+        settingsWritable = typeof SillyTavern.getContext().extensionSettings === 'object';
+    } catch (err) {
+        console.warn(`${LOG} ยังอ่าน context ไม่ได้`, err);
+    }
+    return [
+        ['Secure context', window.isSecureContext === true, window.location.origin],
+        ['IndexedDB', typeof window.indexedDB !== 'undefined', 'เก็บ session ดิบ'],
+        ['แชร์ไฟล์ตรง', shareFiles, shareFiles ? 'ใช้ได้' : 'จะกดค้างเซฟรูปแทน'],
+        ['extensionSettings', settingsWritable, 'เก็บยอดรายวัน'],
+    ];
 }
 
-/** ตรวจว่าเบราว์เซอร์เครื่องนี้รองรับอะไรบ้าง — ตัวชี้ขาดของ Stage 4 / Stage 8 */
-function probeEnvironment() {
-    const canShareFiles =
-        typeof navigator.canShare === 'function' &&
-        (() => {
-            try {
-                const probe = new File([new Blob(['x'])], 'p.png', { type: 'image/png' });
-                return navigator.canShare({ files: [probe] });
-            } catch (err) {
-                console.warn(`${LOG} canShare probe failed`, err);
-                return false;
-            }
-        })();
-
-    return {
-        secureContext: window.isSecureContext === true,
-        origin: window.location.origin,
-        indexedDB: typeof window.indexedDB !== 'undefined',
-        localforage: typeof SillyTavern?.libs?.localforage !== 'undefined',
-        shareFiles: canShareFiles,
-        settingsWritable: typeof context.extensionSettings === 'object',
-    };
+function paintProbe() {
+    const box = document.getElementById('sts_probe');
+    if (!box) return;
+    box.textContent = '';
+    for (const [label, ok, note] of probe()) {
+        const row = document.createElement('div');
+        row.className = 'sts-probe-row';
+        const i = document.createElement('span');
+        i.className = 'sts-probe-icon';
+        i.textContent = ok ? '✅' : '⚠️';
+        const l = document.createElement('span');
+        l.className = 'sts-probe-label';
+        l.textContent = label;
+        const n = document.createElement('span');
+        n.className = 'sts-probe-note';
+        n.textContent = note;
+        row.append(i, l, n);
+        box.append(row);
+    }
+    console.table(probe());
 }
 
-function paintProbe(env) {
-    const $root = $('#sts_probe');
-    if (!$root.length) {
-        console.error(`${LOG} #sts_probe not found — template ไม่ตรงกับ js`);
+function tryInject() {
+    if (document.getElementById('sts_panel')) return true;
+    const host = document.getElementById('extensions_settings2')
+              || document.getElementById('extensions_settings');
+    if (!host) return false;
+    host.insertAdjacentHTML('beforeend', PANEL_HTML);
+    paintProbe();
+    return true;
+}
+
+// ไม่รออีเวนต์ — ลองเองทุกครึ่งวินาที สูงสุด 30 วินาทีแล้วเลิก
+let tries = 0;
+console.log(`${LOG} 2/3 เริ่มมองหาช่องใส่ panel`);
+const timer = setInterval(() => {
+    tries++;
+    if (tryInject()) {
+        clearInterval(timer);
+        window.STS_LOADED = 'ok';
+        console.log(`${LOG} 3/3 ✅ panel ขึ้นแล้ว (รอบที่ ${tries})`);
+        if (typeof toastr !== 'undefined') toastr.success('Stage 1-B โหลดสำเร็จ', 'Screen Time Stats');
         return;
     }
-
-    const mark = ok => (ok ? '✅' : '⚠️');
-    const rows = [
-        ['Secure context (จำเป็นกับการแชร์รูป)', mark(env.secureContext), env.origin],
-        ['IndexedDB', mark(env.indexedDB), env.localforage ? 'localforage พร้อม' : 'ไม่พบ localforage'],
-        ['Share ไฟล์ตรงจากเบราว์เซอร์', mark(env.shareFiles), env.shareFiles ? 'ใช้ได้' : 'จะใช้วิธีกดค้างเซฟรูปแทน'],
-        ['เขียน extensionSettings', mark(env.settingsWritable), 'สำหรับเก็บยอดรายวัน'],
-    ];
-
-    const html = rows
-        .map(([label, icon, note]) => `
-            <div class="sts-probe-row">
-                <span class="sts-probe-icon">${icon}</span>
-                <span class="sts-probe-label">${label}</span>
-                <span class="sts-probe-note">${note}</span>
-            </div>`)
-        .join('');
-
-    // note มาจากค่าที่เราสร้างเองทั้งหมด แต่ล้างผ่าน DOMPurify ไว้เป็นนิสัย
-    const purify = SillyTavern?.libs?.DOMPurify;
-    $root.html(purify ? purify.sanitize(html) : html);
-
-    console.table(env);
-}
-
-async function injectPanel() {
-    let html;
-    try {
-        html = await context.renderExtensionTemplateAsync(TEMPLATE_DIR, 'settings');
-    } catch (err) {
-        console.warn(`${LOG} renderExtensionTemplateAsync พลาด, ถอยไปใช้ $.get`, err);
-        html = await $.get(`scripts/extensions/${TEMPLATE_DIR}/settings.html`);
+    if (tries >= 60) {
+        clearInterval(timer);
+        window.STS_LOADED = 'no-host';
+        console.error(`${LOG} ❌ หา #extensions_settings2 ไม่เจอใน 30 วินาที`);
     }
-
-    $('#extensions_settings2').append(html);
-    paintProbe(probeEnvironment());
-}
-
-(async function boot() {
-    console.log(`${LOG} booting...`);
-    try {
-        context.eventSource.once(context.event_types.APP_READY, async () => {
-            await injectPanel();
-            console.log(`${LOG} ✅ panel injected`);
-        });
-    } catch (err) {
-        console.error(`${LOG} ❌ boot failed`, err);
-    }
-})();
+}, 500);
