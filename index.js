@@ -1,12 +1,60 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Stage 1-B — โหมดกันพัง: ไม่รออีเวนต์ ไม่โหลดไฟล์นอก ไม่แตะ getContext ตอนบูต
+// Stage 2 — slider ตั้งเวลาหยุดนับ + เซฟค่าให้รอดข้ามรีเฟรช
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
+const LS_MIRROR = `${MODULE_NAME}:mirror`;
 
-// ธงตรวจชีวิต — พิมพ์ window.STS_LOADED ใน console แล้วรู้ผลทันที
 window.STS_LOADED = 'parsed';
 console.log(`${LOG} 1/3 ไฟล์ถูกอ่านแล้ว`);
+
+const DEFAULTS = {
+    version: 2,
+    idleMinutes: 5,
+};
+
+/** อ่าน settings แบบไม่พังถ้า context ยังไม่มา */
+function getSettings() {
+    let store = null;
+    try {
+        const ctx = SillyTavern.getContext();
+        ctx.extensionSettings[MODULE_NAME] = ctx.extensionSettings[MODULE_NAME] || {};
+        store = ctx.extensionSettings[MODULE_NAME];
+    } catch (err) {
+        console.warn(`${LOG} อ่าน extensionSettings ไม่ได้ ใช้ localStorage แทน`, err);
+    }
+
+    if (!store) {
+        try {
+            store = JSON.parse(localStorage.getItem(LS_MIRROR)) || {};
+        } catch {
+            store = {};
+        }
+    }
+
+    // เติมคีย์ที่เพิ่มมาใหม่ทุกครั้ง — ผู้ใช้เก่าจะไม่เจอ undefined
+    for (const k of Object.keys(DEFAULTS)) {
+        if (store[k] === undefined) store[k] = DEFAULTS[k];
+    }
+    return store;
+}
+
+function saveSettings() {
+    const s = getSettings();
+    let serverOk = false;
+    try {
+        SillyTavern.getContext().saveSettingsDebounced();
+        serverOk = true;
+    } catch (err) {
+        console.warn(`${LOG} saveSettingsDebounced พลาด`, err);
+    }
+    try {
+        localStorage.setItem(LS_MIRROR, JSON.stringify(s));
+    } catch (err) {
+        console.warn(`${LOG} เขียน localStorage พลาด`, err);
+    }
+    console.log(`${LOG} saved · idleMinutes=${s.idleMinutes} · server=${serverOk}`);
+}
 
 const PANEL_HTML = `
 <div class="sts-settings" id="sts_panel">
@@ -16,8 +64,17 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 1-B · โครงเปล่า</div>
-      <p class="sts-hint">โหลดสำเร็จ ยังไม่มีการนับเวลาใด ๆ</p>
+      <div class="sts-stage-tag">Stage 2 · ตั้งเวลาหยุดนับ</div>
+
+      <label class="sts-field-label" for="sts_idle">
+        หยุดนับเมื่อไม่มีการขยับนาน
+        <span id="sts_idle_out" class="sts-value-pill">5 นาที</span>
+      </label>
+      <input id="sts_idle" class="sts-range" type="range" min="1" max="60" step="1" value="5">
+      <p class="sts-hint">ทิ้งหน้าแชทไว้เกินเวลานี้แล้วเวลาจะหยุดเดิน สลับไปแอปอื่นหยุดทันทีไม่รอครบ</p>
+
+      <hr class="sysHR">
+      <div class="sts-probe-title">สภาพเครื่องที่ตรวจได้</div>
       <div id="sts_probe" class="sts-probe">กำลังตรวจ...</div>
     </div>
   </div>
@@ -34,9 +91,8 @@ function probe() {
     let settingsWritable = false;
     try {
         settingsWritable = typeof SillyTavern.getContext().extensionSettings === 'object';
-    } catch (err) {
-        console.warn(`${LOG} ยังอ่าน context ไม่ได้`, err);
-    }
+    } catch { /* ยังไม่พร้อม */ }
+
     return [
         ['Secure context', window.isSecureContext === true, window.location.origin],
         ['IndexedDB', typeof window.indexedDB !== 'undefined', 'เก็บ session ดิบ'],
@@ -52,19 +108,38 @@ function paintProbe() {
     for (const [label, ok, note] of probe()) {
         const row = document.createElement('div');
         row.className = 'sts-probe-row';
-        const i = document.createElement('span');
-        i.className = 'sts-probe-icon';
-        i.textContent = ok ? '✅' : '⚠️';
-        const l = document.createElement('span');
-        l.className = 'sts-probe-label';
-        l.textContent = label;
-        const n = document.createElement('span');
-        n.className = 'sts-probe-note';
-        n.textContent = note;
-        row.append(i, l, n);
+        for (const [cls, text] of [
+            ['sts-probe-icon', ok ? '✅' : '⚠️'],
+            ['sts-probe-label', label],
+            ['sts-probe-note', note],
+        ]) {
+            const el = document.createElement('span');
+            el.className = cls;
+            el.textContent = text;
+            row.append(el);
+        }
         box.append(row);
     }
-    console.table(probe());
+}
+
+function bindSlider() {
+    const s = getSettings();
+    const input = document.getElementById('sts_idle');
+    const out = document.getElementById('sts_idle_out');
+    if (!input || !out) return;
+
+    input.value = String(s.idleMinutes);
+    out.textContent = `${s.idleMinutes} นาที`;
+
+    input.addEventListener('input', () => {
+        const v = Math.min(60, Math.max(1, Number(input.value) || 5));
+        out.textContent = `${v} นาที`;
+        out.classList.remove('sts-pulse');
+        void out.offsetWidth;          // บังคับ reflow ให้ animation เล่นซ้ำได้
+        out.classList.add('sts-pulse');
+        getSettings().idleMinutes = v;
+        saveSettings();
+    });
 }
 
 function tryInject() {
@@ -74,10 +149,10 @@ function tryInject() {
     if (!host) return false;
     host.insertAdjacentHTML('beforeend', PANEL_HTML);
     paintProbe();
+    bindSlider();
     return true;
 }
 
-// ไม่รออีเวนต์ — ลองเองทุกครึ่งวินาที สูงสุด 30 วินาทีแล้วเลิก
 let tries = 0;
 console.log(`${LOG} 2/3 เริ่มมองหาช่องใส่ panel`);
 const timer = setInterval(() => {
@@ -85,13 +160,12 @@ const timer = setInterval(() => {
     if (tryInject()) {
         clearInterval(timer);
         window.STS_LOADED = 'ok';
-        console.log(`${LOG} 3/3 ✅ panel ขึ้นแล้ว (รอบที่ ${tries})`);
-        if (typeof toastr !== 'undefined') toastr.success('Stage 1-B โหลดสำเร็จ', 'Screen Time Stats');
+        console.log(`${LOG} 3/3 ✅ panel ขึ้นแล้ว (รอบที่ ${tries}) · idleMinutes=${getSettings().idleMinutes}`);
         return;
     }
     if (tries >= 60) {
         clearInterval(timer);
         window.STS_LOADED = 'no-host';
-        console.error(`${LOG} ❌ หา #extensions_settings2 ไม่เจอใน 30 วินาที`);
+        console.error(`${LOG} ❌ หา host element ไม่เจอใน 30 วินาที`);
     }
 }, 500);
