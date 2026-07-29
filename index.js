@@ -1,5 +1,4 @@
-// public/scripts/extensions/third-party/screentime-stats/index.js
-// Screen Time Stats · v0.9.0 (Stage 8) — แก้แท่งวันนี้หาย + ลูกเล่นชุดสอง
+// Screen Time Stats · v1.0.0 (Stage 9) 
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
@@ -14,11 +13,12 @@ window.STS_LOADED = 'parsed';
 console.log(`${LOG} 1/3 อ่านไฟล์แล้ว`);
 
 const DEFAULTS = {
-    version: 9,
+    version: 10,
     idleMinutes: 5,
     hideNames: false,
     fancy: true,
-    dailyGoalMin: 120,     // เป้าหมายรายวัน ใช้วาดวงแหวนความคืบหน้า
+    devMode: false,
+    dailyGoalMin: 120,
     daily: {},
     meta: {},
 };
@@ -188,7 +188,7 @@ function addBotMsg(key, name, avatar) {
     saveSettings();
 }
 
-/* ══════════ ตัวนับเวลาจริง (คงเดิมทั้งก้อน) ══════════ */
+/* ══════════ ตัวนับเวลาจริง ══════════ */
 
 let liveKey = null;
 let liveName = null;
@@ -352,7 +352,7 @@ const stsTrackTimer = setInterval(() => {
     if (startTracker() || trackTries >= 120) clearInterval(stsTrackTimer);
 }, 500);
 
-/* ══════════ ข้อมูลตัวอย่าง ══════════ */
+/* ══════════ ข้อมูลตัวอย่าง (เรียกจาก drawer เท่านั้น) ══════════ */
 
 function say(msg, type = 'info') {
     if (typeof toastr !== 'undefined' && toastr[type]) toastr[type](msg, 'Screen Time Stats');
@@ -392,7 +392,7 @@ function clearDemo() {
     say(`ล้างข้อมูลตัวอย่างแล้ว ${n} ตัว (ข้อมูลจริงไม่โดน)`, 'success');
 }
 
-/* ══════════ ★ ชั้นตกแต่ง: CSS ══════════ */
+/* ══════════ ชั้นตกแต่ง: CSS ══════════ */
 
 const FX_CSS = `
 @keyframes sts-fx-rise{
@@ -401,62 +401,38 @@ const FX_CSS = `
   100%{opacity:1;transform:none}
 }
 @keyframes sts-fx-grow{
-  0%{transform:scaleY(0)}
-  72%{transform:scaleY(1.07)}
-  100%{transform:scaleY(1)}
+  0%{transform:scaleY(0)}72%{transform:scaleY(1.07)}100%{transform:scaleY(1)}
 }
 @keyframes sts-fx-sweep{
-  0%{background-position:-160% 0}
-  100%{background-position:260% 0}
+  0%{background-position:-160% 0}100%{background-position:260% 0}
 }
 @keyframes sts-fx-breathe{
   0%,100%{box-shadow:0 0 0 0 rgba(127,127,127,0)}
   50%{box-shadow:0 0 18px 3px var(--sts-accent,#8ab4ff)}
 }
 @keyframes sts-fx-bob{
-  0%,100%{transform:translateY(0) rotate(-5deg)}
-  50%{transform:translateY(-6px) rotate(5deg)}
+  0%,100%{transform:translateY(0) rotate(-5deg)}50%{transform:translateY(-6px) rotate(5deg)}
 }
 @keyframes sts-fx-blink{
-  0%,100%{opacity:1;transform:scale(1)}
-  50%{opacity:0.32;transform:scale(0.74)}
+  0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.32;transform:scale(0.74)}
 }
 @keyframes sts-fx-fall{
   0%{opacity:0;transform:translateY(-26px) rotate(0deg)}
   12%{opacity:1}
   100%{opacity:0;transform:translateY(170px) rotate(460deg)}
 }
-@keyframes sts-fx-pop{
-  0%{transform:scale(1)}45%{transform:scale(1.17)}100%{transform:scale(1)}
-}
-@keyframes sts-fx-spin{
-  0%{transform:rotate(0)}100%{transform:rotate(360deg)}
-}
-@keyframes sts-fx-ripple{
-  0%{opacity:0.55;transform:scale(0.4)}
-  100%{opacity:0;transform:scale(3.2)}
-}
+@keyframes sts-fx-pop{0%{transform:scale(1)}45%{transform:scale(1.17)}100%{transform:scale(1)}}
+@keyframes sts-fx-spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+@keyframes sts-fx-ripple{0%{opacity:0.55;transform:scale(0.4)}100%{opacity:0;transform:scale(3.2)}}
 @keyframes sts-fx-drift{
   0%,100%{transform:translate(0,0) scale(1)}
   33%{transform:translate(12%,-8%) scale(1.1)}
   66%{transform:translate(-9%,7%) scale(0.94)}
 }
-@keyframes sts-fx-beam{
-  0%,100%{opacity:0.18}
-  50%{opacity:0.5}
-}
-@keyframes sts-fx-twinkle{
-  0%,100%{opacity:0.2;transform:scale(0.7)}
-  50%{opacity:1;transform:scale(1.15)}
-}
-@keyframes sts-fx-slidein{
-  0%{opacity:0;transform:translateY(10px) scale(0.94)}
-  100%{opacity:1;transform:none}
-}
-@keyframes sts-fx-glowpulse{
-  0%,100%{opacity:0.25}
-  50%{opacity:0.75}
-}
+@keyframes sts-fx-beam{0%,100%{opacity:0.18}50%{opacity:0.5}}
+@keyframes sts-fx-twinkle{0%,100%{opacity:0.2;transform:scale(0.7)}50%{opacity:1;transform:scale(1.15)}}
+@keyframes sts-fx-slidein{0%{opacity:0;transform:translateY(10px) scale(0.94)}100%{opacity:1;transform:none}}
+@keyframes sts-fx-glowpulse{0%,100%{opacity:0.25}50%{opacity:0.75}}
 .sts-fx-card{animation:sts-fx-rise 0.54s cubic-bezier(0.2,1.2,0.3,1) both}
 .sts-fx-press{transition:transform 0.14s cubic-bezier(0.2,1.2,0.3,1);position:relative;overflow:hidden}
 .sts-fx-press:active{transform:scale(0.955)}
@@ -485,6 +461,36 @@ const FX_CSS = `
   .sts-fx-spin,.sts-fx-ripple,.sts-fx-orb,.sts-fx-beam,.sts-fx-twinkle,
   .sts-fx-slidein,.sts-fx-glowpulse{animation:none !important}
 }
+.sts-card{padding:14px;margin-bottom:10px;border-radius:20px;
+  background:rgba(127,127,127,0.10);
+  border:1px solid var(--SmartThemeBorderColor, rgba(127,127,127,0.3))}
+.sts-card-cap,.sts-hero-cap{font-size:0.75em;opacity:0.6;margin-bottom:8px}
+.sts-hero-big{display:flex;align-items:baseline;gap:4px}
+.sts-hero-unit{font-size:0.9em;opacity:0.7}
+.sts-chips{display:flex;gap:8px;margin-top:12px}
+.sts-chip{flex:1 1 0;padding:8px 10px;border-radius:14px;
+  background:rgba(127,127,127,0.12);display:flex;flex-direction:column;gap:2px}
+.sts-chip-k{font-size:0.66em;opacity:0.6}
+.sts-chip-v{font-size:0.92em;font-weight:700;font-variant-numeric:tabular-nums}
+.sts-chart{display:flex;align-items:flex-end;gap:6px;height:174px}
+.sts-col{flex:1 1 0;height:100%;padding:0;cursor:pointer;background:none;border:none;
+  color:inherit;display:flex;flex-direction:column;justify-content:flex-end;position:relative}
+.sts-track{height:132px;display:flex;align-items:flex-end;border-radius:11px;
+  background:rgba(127,127,127,0.12)}
+.sts-fill{width:100%;border-radius:11px;transform-origin:bottom}
+.sts-dow{margin-top:6px;text-align:center;font-size:0.72em;opacity:0.55}
+.sts-col-today .sts-dow{opacity:1;font-weight:800;color:var(--SmartThemeQuoteColor,#8ab4ff)}
+.sts-tip{position:absolute;left:50%;bottom:100%;transform:translate(-50%,6px) scale(0.9);
+  white-space:nowrap;padding:4px 9px;border-radius:999px;font-size:0.66em;pointer-events:none;
+  background:var(--SmartThemeQuoteColor,#8ab4ff);color:var(--SmartThemeBlurTintColor,#111);
+  opacity:0;transition:all 0.2s ease;font-weight:700}
+.sts-col.sts-open .sts-tip{opacity:1;transform:translate(-50%,-2px) scale(1)}
+.sts-tabs{display:flex;gap:6px;margin-bottom:12px}
+.sts-tab{flex:1 1 0;padding:8px 4px;cursor:pointer;border-radius:999px;font-size:0.78em;
+  background:rgba(127,127,127,0.14);color:inherit;border:1px solid transparent}
+.sts-tab-on{background:var(--SmartThemeQuoteColor,#8ab4ff);
+  color:var(--SmartThemeBlurTintColor,#111);font-weight:800}
+.sts-empty{font-size:0.82em;opacity:0.55;padding:8px 0}
 `;
 
 function ensureFx() {
@@ -511,7 +517,6 @@ function el(tag, cls, text) {
     return n;
 }
 
-/** คลื่นแผ่จากจุดที่นิ้วแตะ */
 function attachRipple(node, color) {
     if (!fancyOn()) return;
     node.addEventListener('pointerdown', ev => {
@@ -540,7 +545,6 @@ function fxCard(order = 0) {
     return card;
 }
 
-/** วงแสงลอยเป็นพื้นหลังการ์ด */
 function addOrbs(card, a, b) {
     if (!fancyOn()) return;
     const o1 = el('div', 'sts-fx-orb');
@@ -595,23 +599,20 @@ function avatarNode(entry, size, ringColor, glow) {
     return box;
 }
 
-/** รูปที่หนึ่ง + วงแหวนหมุนรอบตัว */
 function championNode(entry, ring) {
     const holder = el('div');
     holder.style.cssText = 'position:relative;width:76px;height:76px;display:flex;align-items:center;justify-content:center';
     if (fancyOn()) {
         const halo = el('div', 'sts-fx-spin');
-        halo.style.cssText = [
-            'position:absolute', 'inset:0', 'border-radius:50%',
-            `border:2px dashed ${ring}`, 'opacity:0.6',
-        ].join(';');
+        halo.style.cssText = ['position:absolute', 'inset:0', 'border-radius:50%',
+            `border:2px dashed ${ring}`, 'opacity:0.6'].join(';');
         holder.append(halo);
     }
     holder.append(avatarNode(entry, 62, ring, true));
     return holder;
 }
 
-function dropConfetti(host, count = 26) {
+function dropConfetti(host, count = 10) {
     if (!fancyOn()) return;
     const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
     const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
@@ -623,8 +624,7 @@ function dropConfetti(host, count = 26) {
             `width:${w}px`, `height:${w + Math.round(Math.random() * 7)}px`,
             `left:${4 + Math.random() * 92}%`, 'top:0',
             `background:${palette[i % palette.length]}`,
-            `animation-delay:${Math.random() * 900}ms`,
-            'opacity:0',
+            `animation-delay:${Math.random() * 900}ms`, 'opacity:0',
         ].join(';');
         bit.addEventListener('animationend', () => bit.remove());
         host.append(bit);
@@ -662,11 +662,10 @@ function buildLive() {
     dotHolder.append(dot);
     const stateLine = el('div', 'sts-hint');
     stateLine.id = 'sts_live_state';
-    stateLine.style.cssText = 'margin:0';
+    stateLine.style.cssText = 'margin:0;font-size:0.8em;opacity:0.7';
     stateWrap.append(dotHolder, stateLine);
     who.append(nameLine, stateWrap);
 
-    // วงแหวนความคืบหน้ารอบตัวเลข
     const ringBox = el('div');
     ringBox.id = 'sts_live_ring';
     ringBox.style.cssText = [
@@ -680,7 +679,7 @@ function buildLive() {
     inner.style.cssText = [
         'width:100%', 'height:100%', 'border-radius:50%',
         'display:flex', 'flex-direction:column', 'align-items:center', 'justify-content:center',
-        'background:rgba(127,127,127,0.10)', 'backdrop-filter:blur(2px)',
+        'background:rgba(127,127,127,0.10)',
     ].join(';');
 
     const clock = el('div');
@@ -688,7 +687,6 @@ function buildLive() {
     clock.style.cssText = [
         'font-size:1.24em', 'font-weight:800', 'line-height:1',
         'font-variant-numeric:tabular-nums', `color:${accent}`,
-        `text-shadow:0 0 14px ${accent}55`,
     ].join(';');
     clock.textContent = '0:00';
     const goalCap = el('div', null, `เป้า ${goalMin}น`);
@@ -699,12 +697,9 @@ function buildLive() {
     rowTop.append(who, ringBox);
     card.append(rowTop);
 
-    // แถบเรืองใต้การ์ด
     const glowBar = el('div', fancyOn() ? 'sts-fx-glowpulse' : null);
-    glowBar.style.cssText = [
-        'height:3px', 'border-radius:99px', 'margin-top:12px',
-        `background:linear-gradient(90deg, transparent, ${accent}, ${second}, transparent)`,
-    ].join(';');
+    glowBar.style.cssText = ['height:3px', 'border-radius:99px', 'margin-top:12px',
+        `background:linear-gradient(90deg, transparent, ${accent}, ${second}, transparent)`].join(';');
     card.append(glowBar);
 
     let lastSec = -1;
@@ -759,7 +754,6 @@ function buildSummary(rows) {
     const avgMin = Math.round(totalMs / 60000 / (rows.length || 1));
     const best = rows.reduce((a, r) => (r.ms > a.ms ? r : a), rows[0] || { ms: 0, dow: '-' });
 
-    // เทียบกับ 7 วันก่อนหน้า
     const prev = seriesByDay(lastDays(7, 7));
     const prevMs = prev.reduce((a, r) => a + r.ms, 0);
     const diffPct = prevMs > 0 ? Math.round(((totalMs - prevMs) / prevMs) * 100) : 0;
@@ -774,8 +768,8 @@ function buildSummary(rows) {
         const badge = el('div', null, `${diffPct >= 0 ? '▲' : '▼'} ${Math.abs(diffPct)}%`);
         badge.style.cssText = [
             'font-size:0.68em', 'font-weight:800', 'padding:3px 9px', 'border-radius:999px',
-            diffPct >= 0 ? 'color:#4ade80' : 'color:#f87171',
-            diffPct >= 0 ? 'background:rgba(74,222,128,0.14)' : 'background:rgba(248,113,113,0.14)',
+            diffPct >= 0 ? 'color:#22a35a' : 'color:#d64545',
+            diffPct >= 0 ? 'background:rgba(74,222,128,0.16)' : 'background:rgba(248,113,113,0.16)',
         ].join(';');
         capRow.append(badge);
     }
@@ -789,7 +783,6 @@ function buildSummary(rows) {
         `background:linear-gradient(92deg, ${accent}, ${second})`,
         '-webkit-background-clip:text', 'background-clip:text',
         '-webkit-text-fill-color:transparent',
-        `filter:drop-shadow(0 4px 16px ${accent}44)`,
     ].join(';');
     big.append(num, el('span', 'sts-hero-unit', ' นาที'));
     card.append(big);
@@ -828,31 +821,29 @@ function buildChart(rows) {
     const frame = el('div');
     frame.style.cssText = 'position:relative';
 
-    // เส้นตารางแนวนอน
     [0.25, 0.5, 0.75].forEach(p => {
         const line = el('div');
         line.style.cssText = [
             'position:absolute', 'left:0', 'right:0',
             `bottom:${36 + p * 132}px`, 'height:1px',
-            'background:var(--SmartThemeBorderColor, rgba(255,255,255,0.14))',
-            'opacity:0.4', 'pointer-events:none',
+            'background:var(--SmartThemeBorderColor, rgba(127,127,127,0.3))',
+            'opacity:0.45', 'pointer-events:none',
         ].join(';');
         frame.append(line);
     });
 
-    // เส้นค่าเฉลี่ย
     if (avg > 0) {
         const avgLine = el('div');
         avgLine.style.cssText = [
             'position:absolute', 'left:0', 'right:0',
             `bottom:${36 + Math.min(1, avg / peak) * 132}px`, 'height:0',
-            `border-top:1px dashed ${second}`, 'opacity:0.75', 'pointer-events:none',
+            `border-top:1px dashed ${second}`, 'opacity:0.8', 'pointer-events:none',
         ].join(';');
         const tag = el('div', null, `เฉลี่ย ${shortMinutes(avg)}`);
         tag.style.cssText = [
             'position:absolute', 'right:0', 'top:-14px',
             'font-size:0.6em', 'padding:1px 7px', 'border-radius:999px',
-            `background:${second}`, 'color:var(--SmartThemeBlurTintColor,#111)', 'font-weight:700',
+            `background:${second}`, 'color:var(--SmartThemeBlurTintColor,#111)', 'font-weight:800',
         ].join(';');
         avgLine.append(tag);
         frame.append(avgLine);
@@ -866,13 +857,12 @@ function buildChart(rows) {
         col.type = 'button';
         if (fancyOn()) col.classList.add('sts-fx-press');
         if (r.isToday) col.classList.add('sts-col-today');
-        attachRipple(col, `${accent}66`);
+        attachRipple(col, `${accent}55`);
 
         const tip = el('div', 'sts-tip', `${shortMinutes(r.ms)} · ${r.msg} ข้อความ`);
         const track = el('div', 'sts-track');
         track.style.position = 'relative';
 
-        // ★ ตัวแท่ง — ถือสีของตัวเองไว้ ไม่ให้คลาสแสงมาทับ background อีก
         const fill = el('div', 'sts-fill');
         const h = Math.max(4, Math.round((r.ms / peak) * 100));
         fill.style.height = `${h}%`;
@@ -891,7 +881,6 @@ function buildChart(rows) {
         if (fancyOn()) {
             fill.style.animation = 'sts-fx-grow 0.64s cubic-bezier(0.2,1.2,0.3,1) both';
             fill.style.animationDelay = `${190 + i * 66}ms`;
-            // ★ แสงวิ่งเป็น div ลูก ไม่แตะพื้นหลังของแท่ง
             const shine = el('div', 'sts-fx-shine');
             shine.style.cssText = 'position:absolute;inset:0;pointer-events:none';
             shine.style.animationDelay = `${i * 260}ms`;
@@ -899,21 +888,17 @@ function buildChart(rows) {
         }
         track.append(fill);
 
-        // หมุดบนยอดแท่งของวันนี้
         if (r.isToday) {
             const pin = el('div');
             pin.style.cssText = [
                 'position:absolute', 'left:50%', `bottom:calc(${h}% - 4px)`,
-                'transform:translateX(-50%)',
-                'width:9px', 'height:9px', 'border-radius:50%',
-                `background:${accent}`, `box-shadow:0 0 12px ${accent}`,
-                'pointer-events:none',
+                'transform:translateX(-50%)', 'width:9px', 'height:9px', 'border-radius:50%',
+                `background:${accent}`, `box-shadow:0 0 12px ${accent}`, 'pointer-events:none',
             ].join(';');
             if (fancyOn()) pin.classList.add('sts-fx-twinkle');
             track.append(pin);
         }
 
-        // ดาวบนแท่งที่สูงสุดของสัปดาห์
         if (r.ms === peak && r.ms > 0 && !r.isToday) {
             const star = el('div', null, '✦');
             star.style.cssText = [
@@ -948,7 +933,6 @@ function buildPodium(days) {
     card.append(el('div', 'sts-card-cap', 'อันดับ'));
 
     const tabs = el('div', 'sts-tabs');
-    tabs.style.position = 'relative';
     const wrap = el('div');
     const views = {};
 
@@ -962,7 +946,7 @@ function buildPodium(days) {
         const view = el('div');
         const top = rankBy(days, field);
         if (!top.length) {
-            view.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้ — กดใส่ข้อมูลตัวอย่างดูก่อนได้'));
+            view.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้'));
             return { node: view, animated: true };
         }
 
@@ -980,10 +964,8 @@ function buildPodium(days) {
 
             if (!r) {
                 const ghost = el('div');
-                ghost.style.cssText = [
-                    'width:100%', 'border-radius:14px 14px 0 0',
-                    `height:${slot.h}px`, 'background:rgba(127,127,127,0.09)',
-                ].join(';');
+                ghost.style.cssText = ['width:100%', 'border-radius:14px 14px 0 0',
+                    `height:${slot.h}px`, 'background:rgba(127,127,127,0.09)'].join(';');
                 colWrap.append(ghost);
                 stage.append(colWrap);
                 return;
@@ -992,7 +974,6 @@ function buildPodium(days) {
             const nm = s.hideNames ? `ตัวละคร ${slot.rank}` : r.name;
 
             if (slot.rank === 1) {
-                // ลำแสงสปอตไลต์พุ่งขึ้นหลังแท่นที่หนึ่ง
                 if (fancyOn()) {
                     const beam = el('div', 'sts-fx-beam');
                     beam.style.cssText = [
@@ -1013,8 +994,7 @@ function buildPodium(days) {
                 const sparkR = el('div', fancyOn() ? 'sts-fx-twinkle' : null, '✦');
                 sparkR.style.cssText = `font-size:0.6em;color:${slot.color};animation-delay:0.7s`;
                 crownRow.append(sparkL, crown, sparkR);
-                colWrap.append(crownRow);
-                colWrap.append(championNode(r, slot.color));
+                colWrap.append(crownRow, championNode(r, slot.color));
             } else {
                 colWrap.append(avatarNode(r, 48, slot.color));
             }
@@ -1023,16 +1003,14 @@ function buildPodium(days) {
             name.style.cssText = [
                 'margin-top:6px', 'max-width:100%',
                 `font-size:${slot.rank === 1 ? '0.9em' : '0.8em'}`, 'font-weight:700',
-                'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap', 'text-align:center',
-                'position:relative',
+                'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap',
+                'text-align:center', 'position:relative',
             ].join(';');
             colWrap.append(name);
 
             const t = el('div', null, shortMinutes(r.ms));
-            t.style.cssText = [
-                'font-size:0.88em', 'font-weight:800', 'font-variant-numeric:tabular-nums',
-                `color:${accent}`, 'position:relative',
-            ].join(';');
+            t.style.cssText = ['font-size:0.88em', 'font-weight:800',
+                'font-variant-numeric:tabular-nums', `color:${accent}`, 'position:relative'].join(';');
             colWrap.append(t);
 
             const c = el('div', null, `${r.msg} ข้อความ`);
@@ -1062,18 +1040,14 @@ function buildPodium(days) {
             medal.style.cssText = 'font-size:1.15em;position:relative;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.35))';
             block.append(medal);
             colWrap.append(block);
-
             stage.append(colWrap);
         });
 
         view.append(stage);
 
         const floor = el('div');
-        floor.style.cssText = [
-            'height:4px', 'border-radius:99px', 'margin-bottom:10px',
-            `background:linear-gradient(90deg, transparent, ${accent}, transparent)`,
-            'opacity:0.55',
-        ].join(';');
+        floor.style.cssText = ['height:4px', 'border-radius:99px', 'margin-bottom:10px',
+            `background:linear-gradient(90deg, transparent, ${accent}, transparent)`, 'opacity:0.55'].join(';');
         if (fancyOn()) floor.classList.add('sts-fx-glowpulse');
         view.append(floor);
 
@@ -1146,28 +1120,7 @@ function buildPodium(days) {
     return card;
 }
 
-/* ══════════ การ์ด: เครื่องมือทดสอบ ══════════ */
-
-function buildDevTools() {
-    const card = fxCard(4);
-    card.style.opacity = '0.78';
-    card.append(el('div', 'sts-card-cap', 'เครื่องมือทดสอบ (จะซ่อนในเวอร์ชันจริง)'));
-    const row = el('div', 'sts-btn-row');
-    for (const [label, fn] of [
-        ['วาดใหม่', () => renderSheet()],
-        ['ใส่ตัวอย่าง', () => { seedDemo(); renderSheet(); }],
-        ['ล้างตัวอย่าง', () => { clearDemo(); renderSheet(); }],
-    ]) {
-        const b = el('button', 'menu_button', label);
-        b.type = 'button';
-        if (fancyOn()) b.classList.add('sts-fx-press');
-        attachRipple(b, 'rgba(255,255,255,0.32)');
-        b.addEventListener('click', fn);
-        row.append(b);
-    }
-    card.append(row);
-    return card;
-}
+/* ══════════ วาดหน้ากราฟ — ไม่มีเครื่องมือทดสอบแล้ว ══════════ */
 
 function renderSheet() {
     const body = document.getElementById('sts_body');
@@ -1176,10 +1129,10 @@ function renderSheet() {
     const days = lastDays(7);
     const rows = seriesByDay(days);
     body.textContent = '';
-    body.append(buildLive(), buildSummary(rows), buildChart(rows), buildPodium(days), buildDevTools());
+    body.append(buildLive(), buildSummary(rows), buildChart(rows), buildPodium(days));
 }
 
-/* ══════════ เปิด / ปิดการ์ด — <dialog> top-layer ══════════ */
+/* ══════════ เปิด / ปิดการ์ด ══════════ */
 
 function openSheet() {
     try {
@@ -1223,7 +1176,7 @@ function openSheet() {
                 'flex:0 0 auto', 'position:relative',
                 'display:flex', 'align-items:center', 'justify-content:space-between',
                 'gap:10px', 'padding:15px 16px', `background:${cardBg}`,
-                'border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
+                'border-bottom:1px solid var(--SmartThemeBorderColor, rgba(127,127,127,0.3))',
             ].join(';');
 
             const titleWrap = document.createElement('div');
@@ -1231,7 +1184,7 @@ function openSheet() {
             const icon = el('div', fancyOn() ? 'sts-fx-spin' : null, '⏳');
             icon.style.cssText = 'font-size:1.05em;line-height:1';
             const title = el('div', null, 'เวลาบนหน้าจอ');
-            title.style.cssText = 'font-size:1.12em;font-weight:800;letter-spacing:0.01em';
+            title.style.cssText = 'font-size:1.12em;font-weight:800';
             titleWrap.append(icon, title);
 
             const btnX = document.createElement('button');
@@ -1249,12 +1202,9 @@ function openSheet() {
             attachRipple(btnX, 'rgba(255,255,255,0.45)');
             head.append(titleWrap, btnX);
 
-            // แถบสีไล่เฉดเรืองใต้ขอบหัว
             const rail = el('div');
-            rail.style.cssText = [
-                'position:absolute', 'left:0', 'right:0', 'bottom:0', 'height:2px',
-                `background:linear-gradient(90deg, transparent, ${accent}, ${second}, transparent)`,
-            ].join(';');
+            rail.style.cssText = ['position:absolute', 'left:0', 'right:0', 'bottom:0', 'height:2px',
+                `background:linear-gradient(90deg, transparent, ${accent}, ${second}, transparent)`].join(';');
             if (fancyOn()) rail.classList.add('sts-fx-glowpulse');
             head.append(rail);
 
@@ -1265,7 +1215,6 @@ function openSheet() {
                 'overflow-y:auto', 'overscroll-behavior:contain', '-webkit-overflow-scrolling:touch',
                 'padding:12px 16px 22px', 'box-sizing:border-box',
             ].join(';');
-            // เลื่อนลงแล้วหัวเข้มขึ้นเล็กน้อย
             body.addEventListener('scroll', () => {
                 const h = document.getElementById('sts_head');
                 if (!h) return;
@@ -1290,7 +1239,7 @@ function openSheet() {
         } else {
             dlg.style.display = 'flex';
         }
-        console.log(`${LOG} ✅ openSheet · fancy=${fancyOn()} · reduced=${reducedMotion()}`);
+        console.log(`${LOG} ✅ openSheet · fancy=${fancyOn()}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
@@ -1373,25 +1322,8 @@ try {
     console.warn(`${LOG} MutationObserver ใช้ไม่ได้`, err);
 }
 
-/* ══════════ คำสั่งเรียกมือ ══════════ */
-
 window.STS_OPEN = openSheet;
 window.STS_CLOSE = closeSheet;
-window.STS_TRACK = () => {
-    const now = Date.now();
-    const saved = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
-    const out = {
-        ตัวละครที่นับอยู่: liveName || '(ไม่มี)',
-        กำลังนับ: activeSince > 0,
-        ค้างอยู่วินาที: activeSince > 0 ? Math.round((now - activeSince) / 1000) : 0,
-        เขียนแล้ววันนี้: fmtClock(saved),
-        หน้าจอ: document.visibilityState,
-        idleนาที: getSettings().idleMinutes,
-        ลูกเล่น: fancyOn(),
-    };
-    console.table(out);
-    return out;
-};
 
 /* ══════════ drawer ในหน้า Extensions ══════════ */
 
@@ -1403,7 +1335,7 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 8 · v0.9.0</div>
+      <div class="sts-stage-tag">v1.0.0</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
@@ -1412,7 +1344,7 @@ const PANEL_HTML = `
       <input id="sts_idle" class="sts-range" type="range" min="1" max="60" step="1" value="5">
 
       <label class="sts-field-label" for="sts_goal">
-        เป้าหมายรายวัน (วงแหวนในการ์ด)
+        เป้าหมายรายวัน
         <span id="sts_goal_out" class="sts-value-pill">120 นาที</span>
       </label>
       <input id="sts_goal" class="sts-range" type="range" min="15" max="480" step="15" value="120">
@@ -1427,12 +1359,34 @@ const PANEL_HTML = `
         <span>เปิดลูกเล่นและอนิเมชัน</span>
       </label>
 
+      <label class="sts-check">
+        <input id="sts_dev" type="checkbox">
+        <span>โหมดนักพัฒนา</span>
+      </label>
+
+      <div id="sts_devbox">
+        <div class="sts-btn-row">
+          <input id="sts_btn_seed" class="menu_button" type="button" value="ใส่ข้อมูลตัวอย่าง">
+          <input id="sts_btn_wipe" class="menu_button" type="button" value="ล้างตัวอย่าง">
+        </div>
+      </div>
+
       <hr class="sysHR">
       <input id="sts_btn_open" class="menu_button" type="button" value="เปิดหน้ากราฟ">
-      <p class="sts-hint">สีทุกชิ้นดึงจากธีมปัจจุบัน · เครื่องที่ตั้งลดการเคลื่อนไหวไว้จะปิดอนิเมชันเอง</p>
+      <p class="sts-hint">เรียกจากไอคอนไม้กายสิทธิ์ → “เวลาบนหน้าจอ” · สีทุกชิ้นดึงจากธีมปัจจุบัน</p>
     </div>
   </div>
 </div>`;
+
+/** ★ ทาสีรางแถบเลื่อนตามค่าปัจจุบัน — ให้เห็นขีดทั้งธีมมืดและธีมขาว */
+function paintRange(input) {
+    if (!input) return;
+    const min = Number(input.min) || 0;
+    const max = Number(input.max) || 100;
+    const val = Number(input.value) || min;
+    const pct = ((val - min) / (max - min)) * 100;
+    input.style.setProperty('--sts-pct', `${pct}%`);
+}
 
 function bindPanel() {
     const s = getSettings();
@@ -1442,12 +1396,14 @@ function bindPanel() {
     if (input && out) {
         input.value = String(s.idleMinutes);
         out.textContent = `${s.idleMinutes} นาที`;
+        paintRange(input);
         input.addEventListener('input', () => {
             const v = Math.min(60, Math.max(1, Number(input.value) || 5));
             out.textContent = `${v} นาที`;
             out.classList.remove('sts-pulse');
             void out.offsetWidth;
             out.classList.add('sts-pulse');
+            paintRange(input);
             getSettings().idleMinutes = v;
             saveSettings();
         });
@@ -1458,12 +1414,14 @@ function bindPanel() {
     if (goal && goalOut) {
         goal.value = String(s.dailyGoalMin);
         goalOut.textContent = `${s.dailyGoalMin} นาที`;
+        paintRange(goal);
         goal.addEventListener('input', () => {
             const v = Math.min(480, Math.max(15, Number(goal.value) || 120));
             goalOut.textContent = `${v} นาที`;
             goalOut.classList.remove('sts-pulse');
             void goalOut.offsetWidth;
             goalOut.classList.add('sts-pulse');
+            paintRange(goal);
             getSettings().dailyGoalMin = v;
             saveSettings();
             if (document.getElementById('sts_dialog')?.open) renderSheet();
@@ -1490,6 +1448,26 @@ function bindPanel() {
         });
     }
 
+    const dev = document.getElementById('sts_dev');
+    const devbox = document.getElementById('sts_devbox');
+    if (dev && devbox) {
+        dev.checked = !!s.devMode;
+        devbox.classList.toggle('sts-shown', !!s.devMode);
+        dev.addEventListener('change', () => {
+            getSettings().devMode = dev.checked;
+            saveSettings();
+            devbox.classList.toggle('sts-shown', dev.checked);
+        });
+    }
+
+    document.getElementById('sts_btn_seed')?.addEventListener('click', () => {
+        seedDemo();
+        if (document.getElementById('sts_dialog')?.open) renderSheet();
+    });
+    document.getElementById('sts_btn_wipe')?.addEventListener('click', () => {
+        clearDemo();
+        if (document.getElementById('sts_dialog')?.open) renderSheet();
+    });
     document.getElementById('sts_btn_open')?.addEventListener('click', openSheet);
 }
 
