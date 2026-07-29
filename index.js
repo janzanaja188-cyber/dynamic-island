@@ -1,22 +1,23 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Screen Time Stats · v0.4.5 (Stage 4-E) — บังคับ fullscreen ไม่มี transition
+// Screen Time Stats · v0.6.0 (Stage 5) — ตัวนับเวลาจริง (ไฟล์เต็ม วางทับได้เลย)
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
 const LS_MIRROR = `${MODULE_NAME}:mirror`;
 const DEMO_PREFIX = 'demo:';
 const MENU_ITEM_ID = 'sts_menu_item';
-const DOW = ['อา', 'จ', 'อ', 'พฤ', 'ศ', 'ส'];
+const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+const TICK_MS = 15000;   // จังหวะบวกเวลาเข้ายอด ทุก 15 วินาที
 
 window.STS_LOADED = 'parsed';
 console.log(`${LOG} 1/3 อ่านไฟล์แล้ว`);
 
 const DEFAULTS = {
-    version: 4,
+    version: 6,
     idleMinutes: 5,
     hideNames: false,
-    daily: {},
-    meta: {},
+    daily: {},   // คีย์ตัวละคร → { 'YYYYMMDD(พ.ศ.)': [ms, ข้อความเรา, ข้อความบอท] }
+    meta: {},    // คีย์ตัวละคร → { name, lastSeen }
 };
 
 /* ══════════ ที่เก็บข้อมูล ══════════ */
@@ -50,7 +51,6 @@ function saveSettings() {
     catch (err) { console.warn(`${LOG} saveSettingsDebounced พลาด`, err); }
     try { localStorage.setItem(LS_MIRROR, JSON.stringify(s)); }
     catch (err) { console.warn(`${LOG} เขียน localStorage พลาด`, err); }
-    console.log(`${LOG} saved · server=${serverOk} · keys=${Object.keys(s.daily).length}`);
 }
 
 /* ══════════ วันที่ + รูปแบบตัวเลข ══════════ */
@@ -66,7 +66,7 @@ function fmtMinutes(ms) {
     const total = Math.round(ms / 60000);
     if (!total) return '0 นาที';
     const h = Math.floor(total / 60), m = total % 60;
-    return h ? `${h}ชม. ${m} นาที` : `${m} นาที`;
+    return h ? `${h} ชม. ${m} นาที` : `${m} นาที`;
 }
 
 function shortMinutes(ms) {
@@ -119,7 +119,7 @@ function rankBy(days, field) {
     return bucket;
 }
 
-/* ══════════ ตัวละครที่เปิดอยู่ + ปุ่มเทส ══════════ */
+/* ══════════ ตัวละครที่เปิดอยู่ ══════════ */
 
 function currentTarget() {
     try {
@@ -130,9 +130,161 @@ function currentTarget() {
         }
         const ch = ctx.characters?.[ctx.characterId];
         if (ch?.avatar) return { key: ch.avatar, name: ch.name || ch.avatar };
-    } catch (err) { console.warn(`${LOG} อ่านตัวละครปจจุบันไม่ได้`, err); }
+    } catch (err) { console.warn(`${LOG} อ่านตัวละครปัจจุบันไม่ได้`, err); }
     return null;
 }
+
+/* ══════════ เขียนยอด (เวลา + ข้อความ) ══════════ */
+
+function addTime(key, name, whenMs, ms) {
+    if (ms <= 0) return;
+    const s = getSettings();
+    const dk = dateKey(new Date(whenMs));
+    s.daily[key] = s.daily[key] || {};
+    const row = s.daily[key][dk] || [0, 0, 0];
+    row[0] += ms;
+    s.daily[key][dk] = row;
+    s.meta[key] = { name: name || s.meta[key]?.name || key, lastSeen: dk };
+}
+
+function addMsg(key, name, kind) {
+    const s = getSettings();
+    const dk = dateKey();
+    s.daily[key] = s.daily[key] || {};
+    const row = s.daily[key][dk] || [0, 0, 0];
+    if (kind === 'user') row[1] += 1; else row[2] += 1;
+    s.daily[key][dk] = row;
+    s.meta[key] = { name: name || s.meta[key]?.name || key, lastSeen: dk };
+    saveSettings();
+}
+
+/* ══════════ ★ ตัวนับเวลาจริง ══════════ */
+
+let liveKey = null;        // ตัวละครที่กำลังนับ
+let liveName = null;
+let activeSince = 0;       // เวลาที่เริ่มนับช่วงนี้ (0 = ไม่ได้นับ)
+let lastActivity = 0;      // เวลาที่ขยับล่าสุด
+let domThrottle = 0;
+let trackerReady = false;
+
+function markActivity() {
+    const now = Date.now();
+    lastActivity = now;
+    // ถ้าหยุดพักอยู่แล้วมีการขยับ + เปิดห้องอยู่ + จอไม่ได้ถูกซ่อน → เริ่มนับใหม่
+    if (activeSince === 0 && liveKey && document.visibilityState === 'visible') {
+        activeSince = now;
+    }
+}
+
+function onDomActivity() {
+    const now = Date.now();
+    if (now - domThrottle < 3000) return;   // ลดการยิงถี่เกินไป
+    domThrottle = now;
+    markActivity();
+}
+
+/** บวกเวลาที่ผ่านไปเข้ายอด ตัดเที่ยงคืนให้ลงถูกวัน */
+function commit(endTs) {
+    if (!liveKey || activeSince === 0) return;
+    let start = activeSince;
+    if (endTs <= start) { activeSince = endTs; return; }
+    let changed = false;
+    while (endTs > start) {
+        const d = new Date(start);
+        const nextMid = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime(); // เที่ยงคืนถัดไป
+        const segEnd = Math.min(endTs, nextMid);
+        const ms = segEnd - start;
+        if (ms > 0) { addTime(liveKey, liveName, start, ms); changed = true; }
+        start = segEnd;
+    }
+    activeSince = endTs;
+    if (changed) saveSettings();
+}
+
+/** เต้นทุก 15 วิ: ถ้าว่างเกิน idle → ปิดยอดแค่ถึงตอนขยับล่าสุด ; ถ้ายัง active → บวกต่อ */
+function tick() {
+    if (!liveKey || activeSince === 0) return;
+    const now = Date.now();
+    const idleMs = Math.max(1, getSettings().idleMinutes) * 60000;
+    if (now - lastActivity > idleMs) {
+        commit(lastActivity);
+        activeSince = 0;
+        console.log(`${LOG} ⏸ ว่างเกิน ${getSettings().idleMinutes} นาที — หยุดนับ ${liveName}`);
+    } else {
+        commit(now);
+    }
+}
+
+function onChatChanged() {
+    commit(Date.now());     // ปิดยอดตัวเก่าก่อน
+    activeSince = 0;
+    const t = currentTarget();
+    liveKey = t?.key || null;
+    liveName = t?.name || null;
+    if (liveKey && document.visibilityState === 'visible') {
+        activeSince = Date.now();
+        lastActivity = Date.now();
+    }
+    console.log(`${LOG} เปลี่ยนห้อง → ${liveName || '(ไม่มี)'} · กำลังนับ=${activeSince > 0}`);
+}
+
+function onVisibility() {
+    if (document.visibilityState === 'hidden') {
+        commit(Date.now());
+        activeSince = 0;     // สลับแอป/ปิดจอ = หยุดทันที
+    } else if (liveKey) {
+        activeSince = Date.now();
+        lastActivity = Date.now();
+    }
+}
+
+function onMessage(kind) {
+    markActivity();
+    if (!liveKey) {
+        const t = currentTarget();
+        if (t) { liveKey = t.key; liveName = t.name; }
+    }
+    if (liveKey) addMsg(liveKey, liveName, kind);
+}
+
+function flushNow() {
+    commit(Date.now());
+    activeSince = 0;
+    saveSettings();
+}
+
+function startTracker() {
+    if (trackerReady) return true;
+    let ctx;
+    try { ctx = SillyTavern.getContext(); } catch { return false; }
+    if (!ctx?.eventSource || !ctx?.event_types) return false;
+
+    const ev = ctx.event_types;
+    if (ev.CHAT_CHANGED) ctx.eventSource.on(ev.CHAT_CHANGED, onChatChanged);
+    if (ev.MESSAGE_SENT) ctx.eventSource.on(ev.MESSAGE_SENT, () => onMessage('user'));
+    if (ev.MESSAGE_RECEIVED) ctx.eventSource.on(ev.MESSAGE_RECEIVED, () => onMessage('bot'));
+
+    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('touchstart', onDomActivity, { passive: true });
+    document.addEventListener('keydown', onDomActivity);
+    window.addEventListener('pagehide', flushNow);
+    window.addEventListener('beforeunload', flushNow);
+
+    setInterval(tick, TICK_MS);
+    onChatChanged();   // จับตัวละครที่เปิดค้างอยู่ตอนนี้
+
+    trackerReady = true;
+    console.log(`${LOG} ⏱️ ตัวนับเวลาเริ่มทำงานแล้ว`);
+    return true;
+}
+
+let trackTries = 0;
+const stsTrackTimer = setInterval(() => {
+    trackTries++;
+    if (startTracker() || trackTries >= 120) clearInterval(stsTrackTimer);
+}, 500);
+
+/* ══════════ ข้อมูลตัวอย่าง + ปุ่มเทส ══════════ */
 
 function bump(key, name, ms, mine, theirs) {
     const s = getSettings();
@@ -242,10 +394,11 @@ function buildChart(rows) {
         col.type = 'button';
         if (r.isToday) col.classList.add('sts-col-today');
 
-        const tip = el('div', 'sts-tip', `${shortMinutes(r.ms)} · ${r.msg}ข้อความ`);
+        const tip = el('div', 'sts-tip', `${shortMinutes(r.ms)} · ${r.msg} ข้อความ`);
         const track = el('div', 'sts-track');
         const fill = el('div', 'sts-fill');
         fill.style.height = `${Math.max(3, Math.round((r.ms / peak) * 100))}%`;
+        fill.style.animationDelay = `${i * 70}ms`;
         track.append(fill);
 
         col.append(tip, track, el('div', 'sts-dow', r.dow));
@@ -268,14 +421,15 @@ function buildRanks(days) {
     card.append(el('div', 'sts-card-cap', 'อันดับ'));
 
     const tabs = el('div', 'sts-tabs');
-    const list = el('div', 'sts-ranks');
+    const wrap = el('div');
+    const lists = {};
 
-    function paint(field) {
-        list.textContent = '';
+    function makeList(field) {
+        const list = el('div', 'sts-ranks');
         const top = rankBy(days, field).slice(0, 5);
         if (!top.length) {
             list.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้ — กดใส่ข้อมูลตัวอย่างดูก่อนได้'));
-            return;
+            return { node: list, animated: true };
         }
         const peak = top[0][field] || 1;
         top.forEach((r, i) => {
@@ -287,7 +441,10 @@ function buildRanks(days) {
 
             const bar = el('div', 'sts-rank-track');
             const f = el('div', 'sts-rank-fill');
-            f.style.width = `${Math.max(4, Math.round((r[field] / peak) * 100))}%`;
+            f.style.animation = 'none';
+            f.style.transition = 'width 0.55s cubic-bezier(0.2, 1, 0.3, 1)';
+            f.style.width = '0%';
+            f.dataset.w = String(Math.max(4, Math.round((r[field] / peak) * 100)));
             bar.append(f);
             mid.append(bar);
 
@@ -296,30 +453,58 @@ function buildRanks(days) {
                 field === 'ms' ? shortMinutes(r.ms) : `${r.msg} ข้อความ`));
             list.append(row);
         });
+        return { node: list, animated: false };
+    }
+
+    function reveal(entry) {
+        for (const k in lists) lists[k].node.style.display = 'none';
+        entry.node.style.display = '';
+        if (entry.animated) return;
+        entry.animated = true;
+        requestAnimationFrame(() => {
+            entry.node.querySelectorAll('.sts-rank-fill').forEach(f => {
+                f.style.width = `${f.dataset.w || 0}%`;
+            });
+        });
     }
 
     for (const [label, field] of [['คุยนานสุด', 'ms'], ['ข้อความเยอะสุด', 'msg']]) {
+        const entry = makeList(field);
+        entry.node.style.display = 'none';
+        lists[field] = entry;
+        wrap.append(entry.node);
+
         const b = el('button', 'sts-tab', label);
         b.type = 'button';
         b.addEventListener('click', () => {
             tabs.querySelectorAll('.sts-tab').forEach(x => x.classList.remove('sts-tab-on'));
             b.classList.add('sts-tab-on');
-            paint(field);
+            reveal(entry);
         });
         tabs.append(b);
     }
-    tabs.firstChild.classList.add('sts-tab-on');
 
-    card.append(tabs, list);
-    paint('ms');
+    tabs.firstChild.classList.add('sts-tab-on');
+    card.append(tabs, wrap);
+    reveal(lists['ms']);
     return card;
 }
 
 function buildDevTools() {
     const card = el('div', 'sts-card sts-dev');
     card.append(el('div', 'sts-card-cap', 'เครื่องมือทดสอบ (จะซ่อนในเวอร์ชันจริง)'));
+
+    // แถบสถานะการนับสด
+    const counting = activeSince > 0;
+    const todayMs = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
+    const status = el('div', 'sts-hint');
+    status.textContent =
+        `นับอยู่: ${liveName || '(ยังไม่ได้เปิดห้อง)'} · ${counting ? '🟢 กำลังนับ' : '⚪ หยุดพัก'} · วันนี้ ${fmtMinutes(todayMs)}`;
+    card.append(status);
+
     const row = el('div', 'sts-btn-row');
     for (const [label, fn] of [
+        ['รีเฟรชสถานะ', () => renderSheet()],
         ['＋1 นาที', () => {
             const t = currentTarget();
             if (!t) { say('เปิดห้องแชทก่อนนะครับ', 'warning'); return; }
@@ -347,11 +532,10 @@ function renderSheet() {
     body.append(buildSummary(rows), buildChart(rows), buildRanks(days), buildDevTools());
 }
 
-/* ══════════ เปิด / ปิดแผ่น — inline styles ล้วน ๆ ══════════ */
+/* ══════════ เปิด / ปิดแผ่น — ใช้ <dialog> top-layer ══════════ */
 
 function openSheet() {
     try {
-        // ── สีทึบ 100% รับทุกฟอร์แมต rgba/hsla/hex(3,6,8) ──
         function toOpaque(raw, fallback) {
             if (!raw) return fallback;
             raw = raw.trim();
@@ -367,7 +551,6 @@ function openSheet() {
         catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้`, e); }
         const cardBg = toOpaque(tint, '#1e1e26');
 
-        // ── สไตล์ของฉากหลัง (::backdrop ทำ inline ไม่ได้ ต้องผ่าน <style>) ──
         if (!document.getElementById('sts_dialog_css')) {
             const st = document.createElement('style');
             st.id = 'sts_dialog_css';
@@ -381,7 +564,6 @@ function openSheet() {
         if (!dlg) {
             dlg = document.createElement(canModal ? 'dialog' : 'div');
             dlg.id = 'sts_dialog';
-            // ★ วางกลางจอด้วย inset+margin — ใน top layer กรอบอ้างอิงคือจอจริง ไม่ใช่ element แม่
             dlg.style.cssText = [
                 'position:fixed', 'inset:0', 'margin:auto',
                 'width:calc(100% - 28px)', 'max-width:520px',
@@ -394,7 +576,6 @@ function openSheet() {
                 'z-index:2147483647',
             ].join(';');
 
-            // หัว — ตรึงบนสุด ไม่เลื่อน
             const head = document.createElement('div');
             head.style.cssText = [
                 'flex:0 0 auto', 'display:flex', 'align-items:center', 'justify-content:space-between',
@@ -416,7 +597,6 @@ function openSheet() {
             btnX.addEventListener('click', closeSheet);
             head.append(title, btnX);
 
-            // เนื้อหา — เลื่อนได้ (min-height:0 คือหัวใจ)
             const body = document.createElement('div');
             body.id = 'sts_body';
             body.style.cssText = [
@@ -428,12 +608,9 @@ function openSheet() {
             dlg.append(head, body);
             document.body.append(dlg);
 
-            // กดฉากหลังนอกการ์ด = ปิด
             dlg.addEventListener('click', ev => { if (ev.target === dlg) closeSheet(); });
-            // ปุ่ม back / ESC = ปิด (ไม่หลุดไปทำอย่างอื่น)
             dlg.addEventListener('cancel', ev => { ev.preventDefault(); closeSheet(); });
         } else {
-            // เปิดซ้ำ — ยัดสีทึบใหม่ เผื่อสลับธีมกลางทาง
             dlg.style.background = cardBg;
             const head = dlg.firstElementChild;
             if (head) head.style.background = cardBg;
@@ -442,12 +619,12 @@ function openSheet() {
         renderSheet();
 
         if (canModal && typeof dlg.showModal === 'function') {
-            if (!dlg.open) dlg.showModal();   // ★ top layer — หนีทุก transform/overflow/clip ของ element แม่
+            if (!dlg.open) dlg.showModal();
         } else {
-            dlg.style.display = 'flex';        // เบราว์เซอร์เก่ามากที่ไม่รู้จัก dialog
+            dlg.style.display = 'flex';
         }
 
-        console.log(`${LOG} ✅ openSheet · dialog(top-layer) · bg=${cardBg} · การ์ด=${dlg.querySelectorAll('.sts-card').length}`);
+        console.log(`${LOG} ✅ openSheet · dialog(top-layer) · bg=${cardBg}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
@@ -466,14 +643,12 @@ function closeSheet() {
 function findMenu() {
     const direct = document.getElementById('extensionsMenu');
     if (direct) return direct;
-
     const block = document.querySelector('#extensions_menu .list-group, .extensions_block .list-group');
     if (block) return block;
-
     const btn = document.getElementById('extensionsMenuButton');
     if (btn) {
         let hop = btn;
-        for (let i = 0; i < 3&& hop; i++) {
+        for (let i = 0; i < 3 && hop; i++) {
             const found = hop.parentElement?.querySelector('.list-group');
             if (found) return found;
             hop = hop.parentElement;
@@ -487,25 +662,18 @@ function makeMenuItem() {
     item.id = MENU_ITEM_ID;
     item.className = 'list-group-item flex-container flexGap5 interactable';
     item.tabIndex = 0;
-
     const icon = document.createElement('div');
     icon.className = 'fa-solid fa-hourglass-half extensionsMenuExtensionButton';
-
     const label = document.createElement('span');
     label.textContent = 'เวลาบนหน้าจอ';
-
     item.append(icon, label);
     item.addEventListener('click', () => {
-        // ปิดเมนูแบบเดียวกับที่ ST ใช้ (jQuery) — สเตตจะได้ไม่เพี้ยน
-        // ไม่มี stopPropagation ไม่มี classList แล้ว
-        try {
-            if (window.jQuery) window.jQuery('#extensionsMenu').fadeOut(120);
-        } catch (e) { console.warn(`${LOG} ปิดเมนูไม่ได้ ปล่อยให้ ST จัดการเอง`, e); }
+        try { if (window.jQuery) window.jQuery('#extensionsMenu').fadeOut(120); }
+        catch (e) { console.warn(`${LOG} ปิดเมนูไม่ได้ ปล่อยให้ ST จัดการเอง`, e); }
         openSheet();
     });
     return item;
 }
-
 
 function mountMenuItem(reason) {
     if (document.getElementById(MENU_ITEM_ID)) return true;
@@ -531,7 +699,7 @@ document.addEventListener('click', ev => {
     const hit = ev.target.closest?.('#extensionsMenuButton, .extensionsMenuButton, [id*="extensionsMenu"]');
     if (!hit) return;
     setTimeout(() => mountMenuItem('ดักตอนกด'), 60);
-    setTimeout(() => mountMenuItem('ดักตอนกด รอบสง'), 320);
+    setTimeout(() => mountMenuItem('ดักตอนกด รอบสอง'), 320);
 }, true);
 
 try {
@@ -543,6 +711,8 @@ try {
     console.warn(`${LOG} MutationObserver ใช้ไม่ได้`, err);
 }
 
+/* ══════════ คำสั่งเรียกมือ + ตรวจอาการ ══════════ */
+
 window.STS_OPEN = openSheet;
 window.STS_CLOSE = closeSheet;
 window.STS_FINDMENU = () => {
@@ -550,22 +720,22 @@ window.STS_FINDMENU = () => {
     console.log(`${LOG} findMenu →`, m);
     return m ? (m.id || m.className) : 'ไม่เจอ';
 };
-window.STS_DIAG = () => {
-    const scrim = document.getElementById('sts_scrim');
+window.STS_TRACK = () => {
+    const now = Date.now();
     const out = {
-        บรรทัดในเมนู: !!document.getElementById(MENU_ITEM_ID),
-        แผ่นมีอยู่: !!scrim,
-        แสดงผลอยู่: scrim ? (scrim.style.display !== 'none') : false,
-        zIndex: scrim?.style.zIndex || '-',
-        opacity: scrim?.style.opacity || '-',
-        การ์ด: scrim?.querySelectorAll('.sts-card').length ?? 0,
+        ตัวละครที่นับอยู่: liveName || '(ไม่มี)',
+        กำลังนับ: activeSince > 0,
+        นับมาแล้ววินาที: activeSince > 0 ? Math.round((now - activeSince) / 1000) : 0,
+        ว่างมาแล้ววินาที: lastActivity ? Math.round((now - lastActivity) / 1000) : '-',
+        หน้าจอ: document.visibilityState,
+        idleนาที: getSettings().idleMinutes,
         ตัวละครในฐานข้อมูล: Object.keys(getSettings().daily).length,
     };
     console.table(out);
     return out;
 };
 
-/* ══════ drawer ในหน้า Extensions ══════════ */
+/* ══════════ drawer ในหน้า Extensions ══════════ */
 
 const PANEL_HTML = `
 <div class="sts-settings" id="sts_panel">
@@ -575,7 +745,7 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 4-E · v0.45</div>
+      <div class="sts-stage-tag">Stage 5 · v0.6.0</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
@@ -590,7 +760,7 @@ const PANEL_HTML = `
 
       <hr class="sysHR">
       <input id="sts_btn_open" class="menu_button" type="button" value="เปิดหน้ากราฟ">
-      <p class="sts-hint">ปกติเรียกจากไอคอนไม้กายสิทธิ์ → "เวลาบนหน้าจอ"</p>
+      <p class="sts-hint">ปกติเรียกจากไอคอนไม้กายสิทธิ์ → "เวลาบนหน้าจอ" · ตัวนับเวลาเดินเองแล้ว</p>
     </div>
   </div>
 </div>`;
@@ -620,7 +790,7 @@ function bindPanel() {
         hide.addEventListener('change', () => {
             getSettings().hideNames = hide.checked;
             saveSettings();
-            if (document.getElementById('sts_scrim')?.style.display !== 'none') renderSheet();
+            if (document.getElementById('sts_dialog')?.open) renderSheet();
         });
     }
 
