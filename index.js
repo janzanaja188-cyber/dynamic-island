@@ -351,17 +351,26 @@ function renderSheet() {
 
 function openSheet() {
     try {
+        // ดึงสีธีมแล้วตัด alpha ทิ้ง บังคับทึบ 100% — แก้อาการจอจาง
+        let solidBg = '#181820';
+        try {
+            const raw = getComputedStyle(document.documentElement)
+                .getPropertyValue('--SmartThemeBlurTintColor').trim();
+            if (raw.startsWith('rgba')) {
+                const n = raw.match(/[\d.]+/g);
+                if (n && n.length >= 3) solidBg = `rgb(${n[0]}, ${n[1]}, ${n[2]})`;
+            } else if (raw.startsWith('rgb') || raw.startsWith('#')) {
+                solidBg = raw;
+            }
+        } catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้ ใช้สีสำรอง`, e); }
+
         let scrim = document.getElementById('sts_scrim');
         if (!scrim) {
             scrim = document.createElement('div');
             scrim.id = 'sts_scrim';
-            // ★ ปักหมุดสี่ด้าน = 0 → สูงเท่าจอจริงเสมอ ไม่พึ่ง vh/dvh อีก
             Object.assign(scrim.style, {
-                position: 'fixed',
-                top: '0', right: '0', bottom: '0', left: '0',
-                display: 'flex', flexDirection: 'column',
-                boxSizing: 'border-box',
-                background: 'var(--SmartThemeBlurTintColor, #1b1b1f)',
+                position: 'fixed', top: '0', right: '0', bottom: '0', left: '0',
+                display: 'flex', flexDirection: 'column', boxSizing: 'border-box',
                 color: 'var(--SmartThemeBodyColor, #eee)',
                 zIndex: '2147483647',
                 paddingTop: 'env(safe-area-inset-top, 0px)',
@@ -371,24 +380,21 @@ function openSheet() {
             // หัว — ตรึงบนสุด ไม่เลื่อน
             const head = document.createElement('div');
             Object.assign(head.style, {
-                flex: '0 0 auto',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                flex: '0 0 auto', display: 'flex',
+                alignItems: 'center', justifyContent: 'space-between',
                 padding: '14px 16px 10px',
                 borderBottom: '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
             });
-
             const title = document.createElement('div');
             title.textContent = '⏱️ เวลาบนหน้าจอ';
             Object.assign(title.style, { fontSize: '1.1em', fontWeight: '600' });
-
             const btnX = document.createElement('button');
-            btnX.textContent = '✕';
-            btnX.type = 'button';
+            btnX.textContent = '✕'; btnX.type = 'button';
             Object.assign(btnX.style, {
                 width: '34px', height: '34px', borderRadius: '50%', flex: '0 0 auto',
                 background: 'transparent', color: 'inherit',
                 border: '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
-                cursor: 'pointer', opacity: '0.7', fontSize: '1em',
+                cursor: 'pointer', opacity: '0.7',
             });
             btnX.addEventListener('click', closeSheet);
             head.append(title, btnX);
@@ -397,10 +403,8 @@ function openSheet() {
             const body = document.createElement('div');
             body.id = 'sts_body';
             Object.assign(body.style, {
-                flex: '1 1 auto',
-                minHeight: '0',
-                overflowY: 'auto',
-                overscrollBehavior: 'contain',
+                flex: '1 1 auto', minHeight: '0',
+                overflowY: 'auto', overscrollBehavior: 'contain',
                 WebkitOverflowScrolling: 'touch',
                 width: '100%', maxWidth: '560px', margin: '0 auto',
                 padding: '12px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
@@ -411,14 +415,18 @@ function openSheet() {
             document.body.append(scrim);
         }
 
+        // บังคับพื้นหลังทึบทุกครั้งที่เปิด เผื่อเปลี่ยนธีมกลางทาง
+        scrim.style.background = solidBg;
+
         renderSheet();
         scrim.style.display = 'flex';
-        console.log(`${LOG} ✅ openSheet · fullscreen(pinned) · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
+        console.log(`${LOG} ✅ openSheet · bg=${solidBg} · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
     }
 }
+
 
 function closeSheet() {
     const scrim = document.getElementById('sts_scrim');
@@ -459,13 +467,17 @@ function makeMenuItem() {
     label.textContent = 'เวลาบนหน้าจอ';
 
     item.append(icon, label);
-    item.addEventListener('click', ev => {
-        ev.stopPropagation();
-        document.getElementById('extensionsMenu')?.classList.add('displayNone');
+    item.addEventListener('click', () => {
+        // ปิดเมนูแบบเดียวกับที่ ST ใช้ (jQuery) — สเตตจะได้ไม่เพี้ยน
+        // ไม่มี stopPropagation ไม่มี classList แล้ว
+        try {
+            if (window.jQuery) window.jQuery('#extensionsMenu').fadeOut(120);
+        } catch (e) { console.warn(`${LOG} ปิดเมนูไม่ได้ ปล่อยให้ ST จัดการเอง`, e); }
         openSheet();
     });
     return item;
 }
+
 
 function mountMenuItem(reason) {
     if (document.getElementById(MENU_ITEM_ID)) return true;
