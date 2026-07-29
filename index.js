@@ -368,56 +368,100 @@ function closeSheet() {
     document.getElementById('sts_scrim')?.classList.remove('sts-on');
 }
 
-/* ---------- ทางเข้า: เมนูไม้กายสิทธิ์ + ปุ่มลอยสำรอง ---------- */
+/* ---------- ทางเข้า: เมนูไม้กายสิทธิ์ (ไล่หา 4 ชั้น) ---------- */
+
+const MENU_ITEM_ID = 'sts_menu_item';
+
+/** หาก้อน list ของเมนู extensions โดยไม่ผูกกับ id เดียว */
+function findMenu() {
+    const direct = document.getElementById('extensionsMenu');
+    if (direct) return direct;
+
+    const block = document.querySelector('#extensions_menu .list-group, .extensions_block .list-group');
+    if (block) return block;
+
+    const btn = document.getElementById('extensionsMenuButton');
+    if (btn) {
+        // เมนูมักเป็น sibling หรือหลานของปุ่ม — ไล่ขึ้นสองชั้นแล้วมองหา list-group
+        let hop = btn;
+        for (let i = 0; i < 3 && hop; i++) {
+            const found = hop.parentElement?.querySelector('.list-group');
+            if (found) return found;
+            hop = hop.parentElement;
+        }
+    }
+    return null;
+}
 
 function makeMenuItem() {
     const item = document.createElement('div');
-    item.id = 'sts_menu_item';
+    item.id = MENU_ITEM_ID;
     item.className = 'list-group-item flex-container flexGap5 interactable';
     item.tabIndex = 0;
+
     const icon = document.createElement('div');
     icon.className = 'fa-solid fa-hourglass-half extensionsMenuExtensionButton';
+
     const label = document.createElement('span');
     label.textContent = 'เวลาบนหน้าจอ';
+
     item.append(icon, label);
-    item.addEventListener('click', () => {
+    item.addEventListener('click', ev => {
+        ev.stopPropagation();
+        findMenu()?.classList.add('displayNone');
         document.getElementById('extensionsMenu')?.classList.add('displayNone');
         openSheet();
     });
     return item;
 }
 
-function makeFloatButton() {
-    const b = document.createElement('button');
-    b.id = 'sts_fab';
-    b.type = 'button';
-    b.title = 'เวลาบนหน้าจอ';
-    b.textContent = '⏱️';
-    b.addEventListener('click', openSheet);
-    document.body.append(b);
-    return b;
+function mountMenuItem(reason) {
+    if (document.getElementById(MENU_ITEM_ID)) return true;
+    const menu = findMenu();
+    if (!menu) return false;
+    menu.append(makeMenuItem());
+    console.log(`${LOG} ✅ ใส่บรรทัดในเมนูแล้ว (${reason}) · host=${menu.id || menu.className}`);
+    return true;
 }
 
+// ชั้น 1 — ลองทุกครึ่งวินาทีช่วง 30 วิแรก
 let entryTries = 0;
-const entryTimer = setInterval(() => {
+const stsEntryTimer = setInterval(() => {
     entryTries++;
-    if (document.getElementById('sts_menu_item') || document.getElementById('sts_fab')) {
-        clearInterval(entryTimer);
-        return;
-    }
-    const menu = document.getElementById('extensionsMenu');
-    if (menu) {
-        menu.append(makeMenuItem());
-        clearInterval(entryTimer);
-        console.log(`${LOG} ✅ ใส่ปุ่มในเมนูไม้กายสิทธิ์แล้ว (รอบที่ ${entryTries})`);
-        return;
-    }
-    if (entryTries >= 60) {
-        clearInterval(entryTimer);
-        makeFloatButton();
-        console.warn(`${LOG} ⚠️ ไม่เจอ #extensionsMenu — ถอยไปใช้ปุ่มลอยมุมขวาล่าง`);
+    if (mountMenuItem(`รอบที่ ${entryTries}`) || entryTries >= 60) {
+        clearInterval(stsEntryTimer);
+        if (!document.getElementById(MENU_ITEM_ID)) {
+            console.warn(`${LOG} ⚠️ ยังหาเมนูไม่เจอ — จะรอดักตอนกดปุ่มไม้กายสิทธิ์แทน`);
+        }
     }
 }, 500);
+
+// ชั้น 2 — ดักตอนนิ้วกด ไม่แคร์ว่า id ชื่ออะไร ยัดสดตอนเมนูเปิด
+document.addEventListener('click', ev => {
+    const hit = ev.target.closest?.('#extensionsMenuButton, .extensionsMenuButton, [id*="extensionsMenu"]');
+    if (!hit) return;
+    setTimeout(() => mountMenuItem('ดักตอนกด'), 60);
+    setTimeout(() => mountMenuItem('ดักตอนกด รอบสอง'), 320);
+}, true);
+
+// ชั้น 3 — เมนูถูกสร้างใหม่ทุกครั้งที่เปิด? ให้ observer คอยเติมกลับ
+try {
+    const obs = new MutationObserver(() => {
+        const menu = findMenu();
+        if (menu && !document.getElementById(MENU_ITEM_ID)) mountMenuItem('observer');
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+} catch (err) {
+    console.warn(`${LOG} MutationObserver ใช้ไม่ได้`, err);
+}
+
+// ชั้น 4 — คำสั่งเปิดมือ กันเหนียวไว้เรียกจาก console ได้ตลอด
+window.STS_OPEN = openSheet;
+window.STS_FINDMENU = () => {
+    const m = findMenu();
+    console.log(`${LOG} findMenu →`, m);
+    return m ? (m.id || m.className) : 'ไม่เจอ';
+};
 
 /* ---------- drawer ในหน้า Extensions ---------- */
 
@@ -429,7 +473,7 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 4 · กราฟ 7 วัน</div>
+      <div class="sts-stage-tag">Stage 4-B · กราฟ 7 วัน</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
@@ -481,24 +525,25 @@ function bindPanel() {
     document.getElementById('sts_btn_open')?.addEventListener('click', openSheet);
 }
 
-let tries = 0;
+let panelTries = 0;
 console.log(`${LOG} 2/3 เริ่มมองหาช่องใส่ panel`);
-const timer = setInterval(() => {
-    tries++;
-    if (document.getElementById('sts_panel')) { clearInterval(timer); return; }
+const stsPanelTimer = setInterval(() => {
+    panelTries++;
+    if (document.getElementById('sts_panel')) { clearInterval(stsPanelTimer); return; }
     const host = document.getElementById('extensions_settings2')
               || document.getElementById('extensions_settings');
     if (host) {
         host.insertAdjacentHTML('beforeend', PANEL_HTML);
         bindPanel();
-        clearInterval(timer);
+        clearInterval(stsPanelTimer);
         window.STS_LOADED = 'ok';
-        console.log(`${LOG} 3/3 ✅ panel ขึ้นแล้ว (รอบที่ ${tries})`);
+        console.log(`${LOG} 3/3 ✅ panel ขึ้นแล้ว (รอบที่ ${panelTries})`);
         return;
     }
-    if (tries >= 60) {
-        clearInterval(timer);
+    if (panelTries >= 60) {
+        clearInterval(stsPanelTimer);
         window.STS_LOADED = 'no-host';
         console.error(`${LOG} ❌ หา host element ไม่เจอใน 30 วินาที`);
     }
 }, 500);
+            
