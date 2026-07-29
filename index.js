@@ -351,90 +351,67 @@ function renderSheet() {
 
 function openSheet() {
     try {
-        // ── แปลงสีธีมเป็นทึบ 100% รับทุกฟอร์แมต rgba/hsla/hex(3,6,8) ──
+        // ── สีทึบ 100% รับทุกฟอร์แมต rgba/hsla/hex(3,6,8) ──
         function toOpaque(raw, fallback) {
             if (!raw) return fallback;
             raw = raw.trim();
             let m = raw.match(/rgba?\(([^)]+)\)/i);
-            if (m) {
-                const p = m[1].split(',').map(s => s.trim());
-                if (p.length >= 3) return `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
-            }
+            if (m) { const p = m[1].split(',').map(s => s.trim()); if (p.length >= 3) return `rgb(${p[0]}, ${p[1]}, ${p[2]})`; }
             m = raw.match(/hsla?\(([^)]+)\)/i);
-            if (m) {
-                const p = m[1].split(',').map(s => s.trim());
-                if (p.length >= 3) return `hsl(${p[0]}, ${p[1]}, ${p[2]})`;
-            }
-            if (raw[0] === '#') {
-                let h = raw.slice(1);
-                if (h.length === 4) h = h.slice(0, 3);       // #rgba → #rgb
-                else if (h.length === 8) h = h.slice(0, 6);  // #rrggbbaa → #rrggbb  ★ ตัวการจอจาง
-                return `#${h}`;
-            }
+            if (m) { const p = m[1].split(',').map(s => s.trim()); if (p.length >= 3) return `hsl(${p[0]}, ${p[1]}, ${p[2]})`; }
+            if (raw[0] === '#') { let h = raw.slice(1); if (h.length === 4) h = h.slice(0, 3); else if (h.length === 8) h = h.slice(0, 6); return `#${h}`; }
             return fallback;
         }
-
         let tint = '';
-        try {
-            tint = getComputedStyle(document.documentElement)
-                .getPropertyValue('--SmartThemeBlurTintColor');
-        } catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้`, e); }
+        try { tint = getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBlurTintColor'); }
+        catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้`, e); }
         const cardBg = toOpaque(tint, '#1e1e26');
 
-        let scrim = document.getElementById('sts_scrim');
-        if (!scrim) {
-            // ── พื้นหรี่ (โปร่งได้ เพราะแค่หรี่แอปข้างหลัง) ──
-            scrim = document.createElement('div');
-            scrim.id = 'sts_scrim';
-            scrim.style.cssText = [
-                'position:fixed', 'top:0', 'right:0', 'bottom:0', 'left:0',
-                'display:flex', 'align-items:center', 'justify-content:center',
-                'box-sizing:border-box',
-                'padding:14px',
-                'padding-top:max(14px, env(safe-area-inset-top, 0px))',
-                'padding-bottom:max(14px, env(safe-area-inset-bottom, 0px))',
-                'background:rgba(0,0,0,0.6)',
-                'z-index:2147483647',
-            ].join(';');
+        // ── สไตล์ของฉากหลัง (::backdrop ทำ inline ไม่ได้ ต้องผ่าน <style>) ──
+        if (!document.getElementById('sts_dialog_css')) {
+            const st = document.createElement('style');
+            st.id = 'sts_dialog_css';
+            st.textContent = '#sts_dialog::backdrop{background:rgba(0,0,0,0.6)}';
+            document.head.append(st);
+        }
 
-            // ── การ์ด (ทึบ 100% เสมอ) ──
-            const card = document.createElement('div');
-            card.id = 'sts_card';
-            card.style.cssText = [
-                'width:100%', 'max-width:520px', 'max-height:100%',
-                'display:flex', 'flex-direction:column',
-                'box-sizing:border-box',
-                'border-radius:22px', 'overflow:hidden',
+        const canModal = !!window.HTMLDialogElement;
+        let dlg = document.getElementById('sts_dialog');
+
+        if (!dlg) {
+            dlg = document.createElement(canModal ? 'dialog' : 'div');
+            dlg.id = 'sts_dialog';
+            // ★ วางกลางจอด้วย inset+margin — ใน top layer กรอบอ้างอิงคือจอจริง ไม่ใช่ element แม่
+            dlg.style.cssText = [
+                'position:fixed', 'inset:0', 'margin:auto',
+                'width:calc(100% - 28px)', 'max-width:520px',
+                'height:auto', 'max-height:calc(100% - 28px)',
+                'display:flex', 'flex-direction:column', 'box-sizing:border-box',
+                'padding:0', 'border:none', 'border-radius:22px', 'overflow:hidden',
                 `background:${cardBg}`, 'opacity:1',
                 'color:var(--SmartThemeBodyColor, #eee)',
-                'border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
                 'box-shadow:0 20px 60px rgba(0,0,0,0.55)',
+                'z-index:2147483647',
             ].join(';');
 
             // หัว — ตรึงบนสุด ไม่เลื่อน
             const head = document.createElement('div');
             head.style.cssText = [
-                'flex:0 0 auto', 'display:flex',
-                'align-items:center', 'justify-content:space-between',
-                'gap:10px', 'padding:14px 16px',
-                `background:${cardBg}`,
+                'flex:0 0 auto', 'display:flex', 'align-items:center', 'justify-content:space-between',
+                'gap:10px', 'padding:14px 16px', `background:${cardBg}`,
                 'border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
             ].join(';');
-
             const title = document.createElement('div');
             title.textContent = '⏱️ เวลาบนหน้าจอ';
             title.style.cssText = 'font-size:1.1em;font-weight:600';
-
             const btnX = document.createElement('button');
             btnX.type = 'button';
             btnX.textContent = '✕ ปิด';
             btnX.style.cssText = [
-                'flex:0 0 auto', 'cursor:pointer',
-                'padding:8px 14px', 'border-radius:999px',
-                'font-size:0.9em', 'font-weight:600',
+                'flex:0 0 auto', 'cursor:pointer', 'padding:8px 14px', 'border-radius:999px',
+                'font-size:0.9em', 'font-weight:600', 'border:none',
                 'background:var(--SmartThemeQuoteColor, #8ab4ff)',
                 'color:var(--SmartThemeBlurTintColor, #111)',
-                'border:none',
             ].join(';');
             btnX.addEventListener('click', closeSheet);
             head.append(title, btnX);
@@ -444,26 +421,33 @@ function openSheet() {
             body.id = 'sts_body';
             body.style.cssText = [
                 'flex:1 1 auto', 'min-height:0',
-                'overflow-y:auto', 'overscroll-behavior:contain',
-                '-webkit-overflow-scrolling:touch',
+                'overflow-y:auto', 'overscroll-behavior:contain', '-webkit-overflow-scrolling:touch',
                 'padding:12px 16px 20px', 'box-sizing:border-box',
             ].join(';');
 
-            card.append(head, body);
-            scrim.append(card);
-            scrim.addEventListener('click', ev => { if (ev.target === scrim) closeSheet(); });
-            document.body.append(scrim);
+            dlg.append(head, body);
+            document.body.append(dlg);
+
+            // กดฉากหลังนอกการ์ด = ปิด
+            dlg.addEventListener('click', ev => { if (ev.target === dlg) closeSheet(); });
+            // ปุ่ม back / ESC = ปิด (ไม่หลุดไปทำอย่างอื่น)
+            dlg.addEventListener('cancel', ev => { ev.preventDefault(); closeSheet(); });
         } else {
-            // เปิดซ้ำ — บังคับสีทึบใหม่ เผื่อสลับธีมกลางทาง
-            const card = document.getElementById('sts_card');
-            if (card) card.style.background = cardBg;
-            const head = card?.firstElementChild;
+            // เปิดซ้ำ — ยัดสีทึบใหม่ เผื่อสลับธีมกลางทาง
+            dlg.style.background = cardBg;
+            const head = dlg.firstElementChild;
             if (head) head.style.background = cardBg;
         }
 
         renderSheet();
-        scrim.style.display = 'flex';
-        console.log(`${LOG} ✅ openSheet · card=${cardBg} · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
+
+        if (canModal && typeof dlg.showModal === 'function') {
+            if (!dlg.open) dlg.showModal();   // ★ top layer — หนีทุก transform/overflow/clip ของ element แม่
+        } else {
+            dlg.style.display = 'flex';        // เบราว์เซอร์เก่ามากที่ไม่รู้จัก dialog
+        }
+
+        console.log(`${LOG} ✅ openSheet · dialog(top-layer) · bg=${cardBg} · การ์ด=${dlg.querySelectorAll('.sts-card').length}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
@@ -471,8 +455,10 @@ function openSheet() {
 }
 
 function closeSheet() {
-    const scrim = document.getElementById('sts_scrim');
-    if (scrim) scrim.style.display = 'none';
+    const dlg = document.getElementById('sts_dialog');
+    if (!dlg) return;
+    if (typeof dlg.close === 'function' && dlg.open) dlg.close();
+    else dlg.style.display = 'none';
 }
 
 /* ══════════ ทางเข้า: เมนูไม้กายสิทธิ์ (ไล่หา 4 ชั้น) ══════════ */
