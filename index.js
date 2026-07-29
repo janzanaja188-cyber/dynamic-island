@@ -1,5 +1,5 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Screen Time Stats · v0.8.0 (Stage 7) — ชั้นตกแต่งเต็ม ตรรกะการนับคงเดิม
+// Screen Time Stats · v0.9.0 (Stage 8) — แก้แท่งวันนี้หาย + ลูกเล่นชุดสอง
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
@@ -14,10 +14,11 @@ window.STS_LOADED = 'parsed';
 console.log(`${LOG} 1/3 อ่านไฟล์แล้ว`);
 
 const DEFAULTS = {
-    version: 8,
+    version: 9,
     idleMinutes: 5,
     hideNames: false,
-    fancy: true,        // เปิด/ปิดลูกเล่นทั้งชุด
+    fancy: true,
+    dailyGoalMin: 120,     // เป้าหมายรายวัน ใช้วาดวงแหวนความคืบหน้า
     daily: {},
     meta: {},
 };
@@ -54,7 +55,6 @@ function saveSettings() {
     catch (err) { console.warn(`${LOG} เขียน localStorage พลาด`, err); }
 }
 
-/** เครื่องผู้ใช้ขอลดการเคลื่อนไหวไหม */
 function reducedMotion() {
     try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
     catch { return false; }
@@ -73,13 +73,6 @@ function dateKey(d = new Date()) {
     return `${y}${m}${day}`;
 }
 
-function fmtMinutes(ms) {
-    const total = Math.round(ms / 60000);
-    if (!total) return '0 นาที';
-    const h = Math.floor(total / 60), m = total % 60;
-    return h ? `${h} ชม. ${m} นาที` : `${m} นาที`;
-}
-
 function shortMinutes(ms) {
     const total = Math.round(ms / 60000);
     if (total < 60) return `${total}น`;
@@ -94,12 +87,12 @@ function fmtClock(ms) {
     return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
-function lastDays(n) {
+function lastDays(n, offset = 0) {
     const out = [];
     for (let i = n - 1; i >= 0; i--) {
         const d = new Date();
-        d.setDate(d.getDate() - i);
-        out.push({ key: dateKey(d), dow: DOW[d.getDay()], dom: d.getDate(), isToday: i === 0 });
+        d.setDate(d.getDate() - i - offset);
+        out.push({ key: dateKey(d), dow: DOW[d.getDay()], dom: d.getDate(), isToday: (i === 0 && offset === 0) });
     }
     return out;
 }
@@ -377,7 +370,7 @@ function seedDemo() {
     ];
     for (const [key, name] of cast) {
         s.daily[key] = s.daily[key] || {};
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 14; i++) {
             const d = new Date();
             d.setDate(d.getDate() - i);
             const mins = 8 + Math.floor(Math.random() * 95);
@@ -386,7 +379,7 @@ function seedDemo() {
         s.meta[key] = { name, avatar: null, lastSeen: dateKey() };
     }
     saveSettings();
-    say('ใส่ข้อมูลตัวอย่าง 7 วัน 5 ตัวละครแล้ว', 'success');
+    say('ใส่ข้อมูลตัวอย่าง 14 วัน 5 ตัวละครแล้ว', 'success');
 }
 
 function clearDemo() {
@@ -399,17 +392,17 @@ function clearDemo() {
     say(`ล้างข้อมูลตัวอย่างแล้ว ${n} ตัว (ข้อมูลจริงไม่โดน)`, 'success');
 }
 
-/* ══════════ ★ ชั้นตกแต่ง: CSS keyframes ══════════ */
+/* ══════════ ★ ชั้นตกแต่ง: CSS ══════════ */
 
 const FX_CSS = `
 @keyframes sts-fx-rise{
-  0%{opacity:0;transform:translateY(16px) scale(0.97)}
-  60%{opacity:1;transform:translateY(-3px) scale(1.006)}
+  0%{opacity:0;transform:translateY(18px) scale(0.965)}
+  62%{opacity:1;transform:translateY(-4px) scale(1.008)}
   100%{opacity:1;transform:none}
 }
 @keyframes sts-fx-grow{
   0%{transform:scaleY(0)}
-  70%{transform:scaleY(1.06)}
+  72%{transform:scaleY(1.07)}
   100%{transform:scaleY(1)}
 }
 @keyframes sts-fx-sweep{
@@ -418,46 +411,79 @@ const FX_CSS = `
 }
 @keyframes sts-fx-breathe{
   0%,100%{box-shadow:0 0 0 0 rgba(127,127,127,0)}
-  50%{box-shadow:0 0 16px 2px var(--sts-accent, #8ab4ff)}
+  50%{box-shadow:0 0 18px 3px var(--sts-accent,#8ab4ff)}
 }
 @keyframes sts-fx-bob{
-  0%,100%{transform:translateY(0) rotate(-4deg)}
-  50%{transform:translateY(-5px) rotate(4deg)}
+  0%,100%{transform:translateY(0) rotate(-5deg)}
+  50%{transform:translateY(-6px) rotate(5deg)}
 }
 @keyframes sts-fx-blink{
   0%,100%{opacity:1;transform:scale(1)}
-  50%{opacity:0.35;transform:scale(0.78)}
+  50%{opacity:0.32;transform:scale(0.74)}
 }
 @keyframes sts-fx-fall{
-  0%{opacity:0;transform:translateY(-24px) rotate(0deg)}
+  0%{opacity:0;transform:translateY(-26px) rotate(0deg)}
   12%{opacity:1}
-  100%{opacity:0;transform:translateY(150px) rotate(420deg)}
+  100%{opacity:0;transform:translateY(170px) rotate(460deg)}
 }
 @keyframes sts-fx-pop{
-  0%{transform:scale(1)}
-  45%{transform:scale(1.16)}
-  100%{transform:scale(1)}
+  0%{transform:scale(1)}45%{transform:scale(1.17)}100%{transform:scale(1)}
 }
-.sts-fx-card{animation:sts-fx-rise 0.52s cubic-bezier(0.2,1.2,0.3,1) both}
-.sts-fx-press{transition:transform 0.14s cubic-bezier(0.2,1.2,0.3,1)}
-.sts-fx-press:active{transform:scale(0.96)}
+@keyframes sts-fx-spin{
+  0%{transform:rotate(0)}100%{transform:rotate(360deg)}
+}
+@keyframes sts-fx-ripple{
+  0%{opacity:0.55;transform:scale(0.4)}
+  100%{opacity:0;transform:scale(3.2)}
+}
+@keyframes sts-fx-drift{
+  0%,100%{transform:translate(0,0) scale(1)}
+  33%{transform:translate(12%,-8%) scale(1.1)}
+  66%{transform:translate(-9%,7%) scale(0.94)}
+}
+@keyframes sts-fx-beam{
+  0%,100%{opacity:0.18}
+  50%{opacity:0.5}
+}
+@keyframes sts-fx-twinkle{
+  0%,100%{opacity:0.2;transform:scale(0.7)}
+  50%{opacity:1;transform:scale(1.15)}
+}
+@keyframes sts-fx-slidein{
+  0%{opacity:0;transform:translateY(10px) scale(0.94)}
+  100%{opacity:1;transform:none}
+}
+@keyframes sts-fx-glowpulse{
+  0%,100%{opacity:0.25}
+  50%{opacity:0.75}
+}
+.sts-fx-card{animation:sts-fx-rise 0.54s cubic-bezier(0.2,1.2,0.3,1) both}
+.sts-fx-press{transition:transform 0.14s cubic-bezier(0.2,1.2,0.3,1);position:relative;overflow:hidden}
+.sts-fx-press:active{transform:scale(0.955)}
 .sts-fx-shine{
   background-image:linear-gradient(105deg,
-    rgba(255,255,255,0) 38%,
-    rgba(255,255,255,0.34) 50%,
-    rgba(255,255,255,0) 62%);
-  background-size:220% 100%;
-  background-repeat:no-repeat;
-  animation:sts-fx-sweep 3.4s linear infinite;
+    rgba(255,255,255,0) 38%,rgba(255,255,255,0.36) 50%,rgba(255,255,255,0) 62%);
+  background-size:220% 100%;background-repeat:no-repeat;
+  animation:sts-fx-sweep 3.2s linear infinite;
 }
 .sts-fx-crown{animation:sts-fx-bob 2.6s ease-in-out infinite}
 .sts-fx-dot{animation:sts-fx-blink 1.15s ease-in-out infinite}
 .sts-fx-glow{animation:sts-fx-breathe 2.8s ease-in-out infinite}
 .sts-fx-confetti{position:absolute;border-radius:2px;pointer-events:none;
-  animation:sts-fx-fall 1.5s cubic-bezier(0.3,0.7,0.4,1) forwards}
+  animation:sts-fx-fall 1.6s cubic-bezier(0.3,0.7,0.4,1) forwards}
+.sts-fx-spin{animation:sts-fx-spin 6s linear infinite}
+.sts-fx-ripple{position:absolute;border-radius:50%;pointer-events:none;
+  animation:sts-fx-ripple 0.62s ease-out forwards}
+.sts-fx-orb{position:absolute;border-radius:50%;pointer-events:none;filter:blur(26px);
+  animation:sts-fx-drift 18s ease-in-out infinite}
+.sts-fx-beam{animation:sts-fx-beam 2.4s ease-in-out infinite}
+.sts-fx-twinkle{animation:sts-fx-twinkle 1.6s ease-in-out infinite}
+.sts-fx-slidein{animation:sts-fx-slidein 0.44s cubic-bezier(0.2,1.2,0.3,1) both}
+.sts-fx-glowpulse{animation:sts-fx-glowpulse 2.2s ease-in-out infinite}
 @media (prefers-reduced-motion: reduce){
-  .sts-fx-card,.sts-fx-shine,.sts-fx-crown,.sts-fx-dot,.sts-fx-glow,.sts-fx-confetti{
-    animation:none !important}
+  .sts-fx-card,.sts-fx-shine,.sts-fx-crown,.sts-fx-dot,.sts-fx-glow,.sts-fx-confetti,
+  .sts-fx-spin,.sts-fx-ripple,.sts-fx-orb,.sts-fx-beam,.sts-fx-twinkle,
+  .sts-fx-slidein,.sts-fx-glowpulse{animation:none !important}
 }
 `;
 
@@ -465,11 +491,10 @@ function ensureFx() {
     if (document.getElementById('sts_fx_css')) return;
     const st = document.createElement('style');
     st.id = 'sts_fx_css';
-    st.textContent = FX_CSS + '#sts_dialog::backdrop{background:rgba(0,0,0,0.62)}';
+    st.textContent = FX_CSS + '#sts_dialog::backdrop{background:rgba(0,0,0,0.64)}';
     document.head.append(st);
 }
 
-/** อ่านสีเน้นจากธีมมาใช้ซ้ำได้ทั้งไฟล์ */
 function themeColor(varName, fallback) {
     try {
         const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
@@ -486,19 +511,48 @@ function el(tag, cls, text) {
     return n;
 }
 
-/** การ์ดพร้อมสปริงเข้าเป็นลำดับ */
+/** คลื่นแผ่จากจุดที่นิ้วแตะ */
+function attachRipple(node, color) {
+    if (!fancyOn()) return;
+    node.addEventListener('pointerdown', ev => {
+        const r = node.getBoundingClientRect();
+        const dot = el('div', 'sts-fx-ripple');
+        const size = Math.max(r.width, r.height);
+        dot.style.cssText = [
+            `width:${size}px`, `height:${size}px`,
+            `left:${ev.clientX - r.left - size / 2}px`,
+            `top:${ev.clientY - r.top - size / 2}px`,
+            `background:${color}`,
+        ].join(';');
+        dot.addEventListener('animationend', () => dot.remove());
+        node.append(dot);
+    });
+}
+
 function fxCard(order = 0) {
     const card = el('div', 'sts-card');
+    card.style.position = 'relative';
+    card.style.overflow = 'hidden';
     if (fancyOn()) {
         card.classList.add('sts-fx-card');
-        card.style.animationDelay = `${order * 70}ms`;
+        card.style.animationDelay = `${order * 72}ms`;
     }
     return card;
 }
 
+/** วงแสงลอยเป็นพื้นหลังการ์ด */
+function addOrbs(card, a, b) {
+    if (!fancyOn()) return;
+    const o1 = el('div', 'sts-fx-orb');
+    o1.style.cssText = `width:130px;height:130px;left:-30px;top:-40px;background:${a};opacity:0.16`;
+    const o2 = el('div', 'sts-fx-orb');
+    o2.style.cssText = `width:150px;height:150px;right:-40px;bottom:-50px;background:${b};opacity:0.13;animation-delay:-7s`;
+    card.prepend(o1, o2);
+}
+
 function countUp(node, target, suffix = '') {
     if (!fancyOn()) { node.textContent = `${target}${suffix}`; return; }
-    const dur = 900;
+    const dur = 950;
     const t0 = performance.now();
     function frame(now) {
         const p = Math.min(1, (now - t0) / dur);
@@ -518,13 +572,12 @@ function avatarNode(entry, size, ringColor, glow) {
         `border:2px solid ${ringColor}`,
         'background:rgba(127,127,127,0.18)',
         `font-size:${Math.round(size / 2.4)}px`, 'font-weight:700',
-        'box-shadow:0 5px 16px rgba(0,0,0,0.32)',
+        'box-shadow:0 5px 18px rgba(0,0,0,0.32)',
     ].join(';');
     if (glow && fancyOn()) {
         box.style.setProperty('--sts-accent', ringColor);
         box.classList.add('sts-fx-glow');
     }
-
     const url = avatarUrl(entry.avatar);
     if (url) {
         const img = document.createElement('img');
@@ -542,21 +595,36 @@ function avatarNode(entry, size, ringColor, glow) {
     return box;
 }
 
-/** เกล็ดฉลองร่วงเหนือโพเดียม ลบตัวเองหลังเล่นจบ */
-function dropConfetti(host, count = 14) {
+/** รูปที่หนึ่ง + วงแหวนหมุนรอบตัว */
+function championNode(entry, ring) {
+    const holder = el('div');
+    holder.style.cssText = 'position:relative;width:76px;height:76px;display:flex;align-items:center;justify-content:center';
+    if (fancyOn()) {
+        const halo = el('div', 'sts-fx-spin');
+        halo.style.cssText = [
+            'position:absolute', 'inset:0', 'border-radius:50%',
+            `border:2px dashed ${ring}`, 'opacity:0.6',
+        ].join(';');
+        holder.append(halo);
+    }
+    holder.append(avatarNode(entry, 62, ring, true));
+    return holder;
+}
+
+function dropConfetti(host, count = 26) {
     if (!fancyOn()) return;
     const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
     const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
-    const palette = [accent, second, '#ffd45e', '#c0c6d4'];
+    const palette = [accent, second, '#ffd45e', '#c0c6d4', '#d99a6c'];
     for (let i = 0; i < count; i++) {
         const bit = el('div', 'sts-fx-confetti');
-        const w = 4 + Math.round(Math.random() * 4);
+        const w = 4 + Math.round(Math.random() * 5);
         bit.style.cssText = [
-            `width:${w}px`, `height:${w + Math.round(Math.random() * 6)}px`,
-            `left:${6 + Math.random() * 88}%`, 'top:0',
+            `width:${w}px`, `height:${w + Math.round(Math.random() * 7)}px`,
+            `left:${4 + Math.random() * 92}%`, 'top:0',
             `background:${palette[i % palette.length]}`,
-            `animation-delay:${Math.random() * 520}ms`,
-            `opacity:0`,
+            `animation-delay:${Math.random() * 900}ms`,
+            'opacity:0',
         ].join(';');
         bit.addEventListener('animationend', () => bit.remove());
         host.append(bit);
@@ -569,61 +637,105 @@ let liveTimer = null;
 
 function buildLive() {
     const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
+    const goalMin = Math.max(1, getSettings().dailyGoalMin);
+
     const card = fxCard(0);
+    addOrbs(card, accent, second);
     card.append(el('div', 'sts-card-cap', 'กำลังนับอยู่'));
 
     const rowTop = el('div');
-    rowTop.style.cssText = 'display:flex;align-items:center;gap:12px';
+    rowTop.style.cssText = 'display:flex;align-items:center;gap:12px;position:relative';
 
     const who = el('div');
     who.style.cssText = 'flex:1 1 auto;min-width:0';
     const nameLine = el('div', null, liveName || 'ยังไม่ได้เปิดห้องแชท');
-    nameLine.style.cssText = 'font-size:0.95em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    nameLine.style.cssText = 'font-size:0.95em;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
 
     const stateWrap = el('div');
-    stateWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px';
+    stateWrap.style.cssText = 'display:flex;align-items:center;gap:7px;margin-top:4px;position:relative';
+    const dotHolder = el('div');
+    dotHolder.style.cssText = 'position:relative;width:9px;height:9px;flex:0 0 auto';
     const dot = el('div');
     dot.id = 'sts_live_dot';
-    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;flex:0 0 auto';
+    dot.style.cssText = 'width:9px;height:9px;border-radius:50%';
+    dotHolder.append(dot);
     const stateLine = el('div', 'sts-hint');
     stateLine.id = 'sts_live_state';
     stateLine.style.cssText = 'margin:0';
-    stateWrap.append(dot, stateLine);
-
+    stateWrap.append(dotHolder, stateLine);
     who.append(nameLine, stateWrap);
+
+    // วงแหวนความคืบหน้ารอบตัวเลข
+    const ringBox = el('div');
+    ringBox.id = 'sts_live_ring';
+    ringBox.style.cssText = [
+        'flex:0 0 auto', 'width:104px', 'height:104px', 'border-radius:50%',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        `background:conic-gradient(${accent} 0deg, rgba(127,127,127,0.16) 0deg)`,
+        'padding:6px', 'box-sizing:border-box',
+    ].join(';');
+
+    const inner = el('div');
+    inner.style.cssText = [
+        'width:100%', 'height:100%', 'border-radius:50%',
+        'display:flex', 'flex-direction:column', 'align-items:center', 'justify-content:center',
+        'background:rgba(127,127,127,0.10)', 'backdrop-filter:blur(2px)',
+    ].join(';');
 
     const clock = el('div');
     clock.id = 'sts_live_clock';
     clock.style.cssText = [
-        'flex:0 0 auto', 'font-size:1.75em', 'font-weight:700', 'line-height:1',
+        'font-size:1.24em', 'font-weight:800', 'line-height:1',
         'font-variant-numeric:tabular-nums', `color:${accent}`,
+        `text-shadow:0 0 14px ${accent}55`,
     ].join(';');
     clock.textContent = '0:00';
+    const goalCap = el('div', null, `เป้า ${goalMin}น`);
+    goalCap.style.cssText = 'font-size:0.6em;opacity:0.55;margin-top:3px';
+    inner.append(clock, goalCap);
+    ringBox.append(inner);
 
-    rowTop.append(who, clock);
+    rowTop.append(who, ringBox);
     card.append(rowTop);
+
+    // แถบเรืองใต้การ์ด
+    const glowBar = el('div', fancyOn() ? 'sts-fx-glowpulse' : null);
+    glowBar.style.cssText = [
+        'height:3px', 'border-radius:99px', 'margin-top:12px',
+        `background:linear-gradient(90deg, transparent, ${accent}, ${second}, transparent)`,
+    ].join(';');
+    card.append(glowBar);
 
     let lastSec = -1;
     function paint() {
         const c = document.getElementById('sts_live_clock');
         const st = document.getElementById('sts_live_state');
         const d = document.getElementById('sts_live_dot');
-        if (!c || !st || !d) { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } return; }
+        const rg = document.getElementById('sts_live_ring');
+        if (!c || !st || !d || !rg) { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } return; }
 
         const saved = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
         const pending = activeSince > 0 ? (Date.now() - activeSince) : 0;
-        const totalSec = Math.floor((saved + pending) / 1000);
-        c.textContent = fmtClock(saved + pending);
+        const totalMs = saved + pending;
+        const totalSec = Math.floor(totalMs / 1000);
+        c.textContent = fmtClock(totalMs);
 
-        // เต้นเบา ๆ ทุกครั้งที่วินาทีเปลี่ยน
-        if (fancyOn() && totalSec !== lastSec && activeSince > 0) {
+        const pct = Math.min(1, (totalMs / 60000) / goalMin);
+        rg.style.background = `conic-gradient(${accent} ${pct * 360}deg, rgba(127,127,127,0.16) ${pct * 360}deg)`;
+
+        const counting = activeSince > 0;
+        if (fancyOn() && totalSec !== lastSec && counting) {
             c.style.animation = 'none';
             void c.offsetWidth;
             c.style.animation = 'sts-fx-pop 0.3s ease';
+            const rip = el('div', 'sts-fx-ripple');
+            rip.style.cssText = 'width:26px;height:26px;left:-8px;top:-8px;background:#4ade80';
+            rip.addEventListener('animationend', () => rip.remove());
+            d.parentElement.append(rip);
         }
         lastSec = totalSec;
 
-        const counting = activeSince > 0;
         d.style.background = counting ? '#4ade80' : 'rgba(127,127,127,0.5)';
         d.classList.toggle('sts-fx-dot', counting && fancyOn());
 
@@ -647,34 +759,57 @@ function buildSummary(rows) {
     const avgMin = Math.round(totalMs / 60000 / (rows.length || 1));
     const best = rows.reduce((a, r) => (r.ms > a.ms ? r : a), rows[0] || { ms: 0, dow: '-' });
 
+    // เทียบกับ 7 วันก่อนหน้า
+    const prev = seriesByDay(lastDays(7, 7));
+    const prevMs = prev.reduce((a, r) => a + r.ms, 0);
+    const diffPct = prevMs > 0 ? Math.round(((totalMs - prevMs) / prevMs) * 100) : 0;
+
     const card = fxCard(1);
-    card.style.background = `linear-gradient(140deg, rgba(127,127,127,0.16), rgba(127,127,127,0.06))`;
-    card.append(el('div', 'sts-hero-cap', 'รวม 7 วันที่ผ่านมา'));
+    addOrbs(card, second, accent);
+
+    const capRow = el('div');
+    capRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px';
+    capRow.append(el('div', 'sts-hero-cap', 'รวม 7 วันที่ผ่านมา'));
+    if (prevMs > 0) {
+        const badge = el('div', null, `${diffPct >= 0 ? '▲' : '▼'} ${Math.abs(diffPct)}%`);
+        badge.style.cssText = [
+            'font-size:0.68em', 'font-weight:800', 'padding:3px 9px', 'border-radius:999px',
+            diffPct >= 0 ? 'color:#4ade80' : 'color:#f87171',
+            diffPct >= 0 ? 'background:rgba(74,222,128,0.14)' : 'background:rgba(248,113,113,0.14)',
+        ].join(';');
+        capRow.append(badge);
+    }
+    card.append(capRow);
 
     const big = el('div', 'sts-hero-big');
     const num = el('span', 'sts-hero-num', '0');
     num.style.cssText = [
-        'font-size:2.6em', 'font-weight:800', 'line-height:1',
+        'font-size:2.7em', 'font-weight:900', 'line-height:1',
         'font-variant-numeric:tabular-nums',
         `background:linear-gradient(92deg, ${accent}, ${second})`,
         '-webkit-background-clip:text', 'background-clip:text',
         '-webkit-text-fill-color:transparent',
+        `filter:drop-shadow(0 4px 16px ${accent}44)`,
     ].join(';');
     big.append(num, el('span', 'sts-hero-unit', ' นาที'));
     card.append(big);
     countUp(num, Math.round(totalMs / 60000));
 
     const chips = el('div', 'sts-chips');
-    for (const [k, v] of [
+    [
         ['เฉลี่ย/วัน', `${avgMin} นาที`],
         ['ข้อความจากบอท', `${totalMsg}`],
-        ['วันที่คุยเยอะสุด', `${best.dow || '-'}`],
-    ]) {
+        ['วันคุยเยอะสุด', `${best.dow || '-'}`],
+    ].forEach(([k, v], i) => {
         const c = el('div', 'sts-chip');
-        c.style.borderRadius = '15px';
+        c.style.borderRadius = '16px';
+        if (fancyOn()) {
+            c.classList.add('sts-fx-slidein');
+            c.style.animationDelay = `${260 + i * 90}ms`;
+        }
         c.append(el('span', 'sts-chip-k', k), el('span', 'sts-chip-v', v));
         chips.append(c);
-    }
+    });
     card.append(chips);
     return card;
 }
@@ -683,31 +818,112 @@ function buildSummary(rows) {
 
 function buildChart(rows) {
     const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
     const card = fxCard(2);
     card.append(el('div', 'sts-card-cap', 'รายวัน'));
 
     const peak = Math.max(1, ...rows.map(r => r.ms));
+    const avg = rows.reduce((a, r) => a + r.ms, 0) / (rows.length || 1);
+
+    const frame = el('div');
+    frame.style.cssText = 'position:relative';
+
+    // เส้นตารางแนวนอน
+    [0.25, 0.5, 0.75].forEach(p => {
+        const line = el('div');
+        line.style.cssText = [
+            'position:absolute', 'left:0', 'right:0',
+            `bottom:${36 + p * 132}px`, 'height:1px',
+            'background:var(--SmartThemeBorderColor, rgba(255,255,255,0.14))',
+            'opacity:0.4', 'pointer-events:none',
+        ].join(';');
+        frame.append(line);
+    });
+
+    // เส้นค่าเฉลี่ย
+    if (avg > 0) {
+        const avgLine = el('div');
+        avgLine.style.cssText = [
+            'position:absolute', 'left:0', 'right:0',
+            `bottom:${36 + Math.min(1, avg / peak) * 132}px`, 'height:0',
+            `border-top:1px dashed ${second}`, 'opacity:0.75', 'pointer-events:none',
+        ].join(';');
+        const tag = el('div', null, `เฉลี่ย ${shortMinutes(avg)}`);
+        tag.style.cssText = [
+            'position:absolute', 'right:0', 'top:-14px',
+            'font-size:0.6em', 'padding:1px 7px', 'border-radius:999px',
+            `background:${second}`, 'color:var(--SmartThemeBlurTintColor,#111)', 'font-weight:700',
+        ].join(';');
+        avgLine.append(tag);
+        frame.append(avgLine);
+    }
+
     const chart = el('div', 'sts-chart');
+    chart.style.position = 'relative';
 
     rows.forEach((r, i) => {
         const col = el('button', 'sts-col');
         col.type = 'button';
         if (fancyOn()) col.classList.add('sts-fx-press');
         if (r.isToday) col.classList.add('sts-col-today');
+        attachRipple(col, `${accent}66`);
 
         const tip = el('div', 'sts-tip', `${shortMinutes(r.ms)} · ${r.msg} ข้อความ`);
         const track = el('div', 'sts-track');
+        track.style.position = 'relative';
+
+        // ★ ตัวแท่ง — ถือสีของตัวเองไว้ ไม่ให้คลาสแสงมาทับ background อีก
         const fill = el('div', 'sts-fill');
-        fill.style.height = `${Math.max(3, Math.round((r.ms / peak) * 100))}%`;
-        if (fancyOn()) {
-            fill.style.animation = `sts-fx-grow 0.62s cubic-bezier(0.2,1.2,0.3,1) both`;
-            fill.style.animationDelay = `${180 + i * 68}ms`;
-            if (r.isToday) {
-                fill.classList.add('sts-fx-shine');
+        const h = Math.max(4, Math.round((r.ms / peak) * 100));
+        fill.style.height = `${h}%`;
+        fill.style.position = 'relative';
+        fill.style.overflow = 'hidden';
+        fill.style.background = r.isToday
+            ? `linear-gradient(180deg, ${accent}, ${second})`
+            : `linear-gradient(180deg, ${accent}cc, ${accent}55)`;
+        if (r.isToday) {
+            fill.style.boxShadow = `0 0 16px ${accent}99`;
+            if (fancyOn()) {
                 fill.style.setProperty('--sts-accent', accent);
+                fill.classList.add('sts-fx-glow');
             }
         }
+        if (fancyOn()) {
+            fill.style.animation = 'sts-fx-grow 0.64s cubic-bezier(0.2,1.2,0.3,1) both';
+            fill.style.animationDelay = `${190 + i * 66}ms`;
+            // ★ แสงวิ่งเป็น div ลูก ไม่แตะพื้นหลังของแท่ง
+            const shine = el('div', 'sts-fx-shine');
+            shine.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+            shine.style.animationDelay = `${i * 260}ms`;
+            fill.append(shine);
+        }
         track.append(fill);
+
+        // หมุดบนยอดแท่งของวันนี้
+        if (r.isToday) {
+            const pin = el('div');
+            pin.style.cssText = [
+                'position:absolute', 'left:50%', `bottom:calc(${h}% - 4px)`,
+                'transform:translateX(-50%)',
+                'width:9px', 'height:9px', 'border-radius:50%',
+                `background:${accent}`, `box-shadow:0 0 12px ${accent}`,
+                'pointer-events:none',
+            ].join(';');
+            if (fancyOn()) pin.classList.add('sts-fx-twinkle');
+            track.append(pin);
+        }
+
+        // ดาวบนแท่งที่สูงสุดของสัปดาห์
+        if (r.ms === peak && r.ms > 0 && !r.isToday) {
+            const star = el('div', null, '✦');
+            star.style.cssText = [
+                'position:absolute', 'left:50%', `bottom:calc(${h}% + 2px)`,
+                'transform:translateX(-50%)', 'font-size:0.7em',
+                `color:${second}`, 'pointer-events:none',
+            ].join(';');
+            if (fancyOn()) star.classList.add('sts-fx-twinkle');
+            track.append(star);
+        }
 
         col.append(tip, track, el('div', 'sts-dow', r.dow));
         col.addEventListener('click', () => {
@@ -718,7 +934,8 @@ function buildChart(rows) {
         chart.append(col);
     });
 
-    card.append(chart);
+    frame.append(chart);
+    card.append(frame);
     return card;
 }
 
@@ -731,13 +948,14 @@ function buildPodium(days) {
     card.append(el('div', 'sts-card-cap', 'อันดับ'));
 
     const tabs = el('div', 'sts-tabs');
+    tabs.style.position = 'relative';
     const wrap = el('div');
     const views = {};
 
     const SLOTS = [
-        { rank: 2, h: 54, color: '#c0c6d4', label: '2' },
-        { rank: 1, h: 88, color: '#ffd45e', label: '1' },
-        { rank: 3, h: 36, color: '#d99a6c', label: '3' },
+        { rank: 2, h: 56, color: '#c0c6d4', medal: '🥈' },
+        { rank: 1, h: 92, color: '#ffd45e', medal: '🥇' },
+        { rank: 3, h: 38, color: '#d99a6c', medal: '🥉' },
     ];
 
     function makeView(field) {
@@ -752,13 +970,13 @@ function buildPodium(days) {
         stage.style.cssText = [
             'position:relative', 'overflow:hidden',
             'display:flex', 'align-items:flex-end', 'justify-content:center',
-            'gap:8px', 'padding:16px 0 2px',
+            'gap:8px', 'padding:18px 0 2px',
         ].join(';');
 
         SLOTS.forEach((slot, order) => {
             const r = top[slot.rank - 1];
             const colWrap = el('div');
-            colWrap.style.cssText = 'flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0';
+            colWrap.style.cssText = 'flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0;position:relative';
 
             if (!r) {
                 const ghost = el('div');
@@ -774,31 +992,51 @@ function buildPodium(days) {
             const nm = s.hideNames ? `ตัวละคร ${slot.rank}` : r.name;
 
             if (slot.rank === 1) {
+                // ลำแสงสปอตไลต์พุ่งขึ้นหลังแท่นที่หนึ่ง
+                if (fancyOn()) {
+                    const beam = el('div', 'sts-fx-beam');
+                    beam.style.cssText = [
+                        'position:absolute', 'bottom:0', 'left:50%', 'transform:translateX(-50%)',
+                        'width:78%', 'height:100%', 'pointer-events:none',
+                        `background:linear-gradient(0deg, ${slot.color}55, transparent 78%)`,
+                        'filter:blur(6px)',
+                    ].join(';');
+                    colWrap.append(beam);
+                }
+                const crownRow = el('div');
+                crownRow.style.cssText = 'display:flex;align-items:center;gap:3px;position:relative';
+                const sparkL = el('div', fancyOn() ? 'sts-fx-twinkle' : null, '✦');
+                sparkL.style.cssText = `font-size:0.6em;color:${slot.color}`;
                 const crown = el('div', null, '👑');
-                crown.style.cssText = 'font-size:1.2em;line-height:1;margin-bottom:2px';
+                crown.style.cssText = 'font-size:1.25em;line-height:1';
                 if (fancyOn()) crown.classList.add('sts-fx-crown');
-                colWrap.append(crown);
+                const sparkR = el('div', fancyOn() ? 'sts-fx-twinkle' : null, '✦');
+                sparkR.style.cssText = `font-size:0.6em;color:${slot.color};animation-delay:0.7s`;
+                crownRow.append(sparkL, crown, sparkR);
+                colWrap.append(crownRow);
+                colWrap.append(championNode(r, slot.color));
+            } else {
+                colWrap.append(avatarNode(r, 48, slot.color));
             }
-
-            colWrap.append(avatarNode(r, slot.rank === 1 ? 64 : 48, slot.color, slot.rank === 1));
 
             const name = el('div', null, nm);
             name.style.cssText = [
                 'margin-top:6px', 'max-width:100%',
                 `font-size:${slot.rank === 1 ? '0.9em' : '0.8em'}`, 'font-weight:700',
                 'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap', 'text-align:center',
+                'position:relative',
             ].join(';');
             colWrap.append(name);
 
             const t = el('div', null, shortMinutes(r.ms));
             t.style.cssText = [
-                'font-size:0.88em', 'font-weight:700', 'font-variant-numeric:tabular-nums',
-                `color:${accent}`,
+                'font-size:0.88em', 'font-weight:800', 'font-variant-numeric:tabular-nums',
+                `color:${accent}`, 'position:relative',
             ].join(';');
             colWrap.append(t);
 
             const c = el('div', null, `${r.msg} ข้อความ`);
-            c.style.cssText = 'font-size:0.7em;opacity:0.6;margin-bottom:7px';
+            c.style.cssText = 'font-size:0.7em;opacity:0.6;margin-bottom:7px;position:relative';
             colWrap.append(c);
 
             const block = el('div', 'sts-podium-block');
@@ -807,44 +1045,48 @@ function buildPodium(days) {
                 'height:0px', 'overflow:hidden', 'position:relative',
                 'display:flex', 'align-items:center', 'justify-content:center',
                 `background:linear-gradient(180deg, ${slot.color}, rgba(127,127,127,0.14))`,
-                'transition:height 0.56s cubic-bezier(0.2,1.25,0.3,1)',
-                `transition-delay:${order * 95}ms`,
-                'box-shadow:inset 0 1px 0 rgba(255,255,255,0.3)',
+                'transition:height 0.58s cubic-bezier(0.2,1.28,0.3,1)',
+                `transition-delay:${order * 100}ms`,
+                'box-shadow:inset 0 1px 0 rgba(255,255,255,0.32)',
             ].join(';');
             block.dataset.h = String(slot.h);
 
             if (fancyOn()) {
                 const shine = el('div', 'sts-fx-shine');
                 shine.style.cssText = 'position:absolute;inset:0;pointer-events:none';
-                shine.style.animationDelay = `${order * 420}ms`;
+                shine.style.animationDelay = `${order * 430}ms`;
                 block.append(shine);
             }
 
-            const label = el('div', null, slot.label);
-            label.style.cssText = 'font-size:1.1em;font-weight:800;color:rgba(0,0,0,0.55);position:relative';
-            block.append(label);
+            const medal = el('div', null, slot.medal);
+            medal.style.cssText = 'font-size:1.15em;position:relative;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.35))';
+            block.append(medal);
             colWrap.append(block);
 
             stage.append(colWrap);
         });
 
         view.append(stage);
-        view.dataset.stage = '1';
 
         const floor = el('div');
         floor.style.cssText = [
             'height:4px', 'border-radius:99px', 'margin-bottom:10px',
             `background:linear-gradient(90deg, transparent, ${accent}, transparent)`,
-            'opacity:0.5',
+            'opacity:0.55',
         ].join(';');
+        if (fancyOn()) floor.classList.add('sts-fx-glowpulse');
         view.append(floor);
 
         top.slice(3, 5).forEach((r, i) => {
             const row = el('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 2px;border-radius:12px';
-            if (fancyOn()) row.classList.add('sts-fx-press');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 6px;border-radius:14px;background:rgba(127,127,127,0.07);margin-bottom:6px';
+            if (fancyOn()) {
+                row.classList.add('sts-fx-press', 'sts-fx-slidein');
+                row.style.animationDelay = `${420 + i * 90}ms`;
+            }
+            attachRipple(row, `${accent}55`);
             const no = el('div', null, String(i + 4));
-            no.style.cssText = 'flex:0 0 18px;text-align:center;font-size:0.8em;opacity:0.55;font-weight:700';
+            no.style.cssText = 'flex:0 0 20px;text-align:center;font-size:0.8em;opacity:0.55;font-weight:800';
             row.append(no, avatarNode(r, 28, 'rgba(127,127,127,0.35)'));
 
             const mid = el('div');
@@ -870,9 +1112,12 @@ function buildPodium(days) {
             entry.node.querySelectorAll('.sts-podium-block').forEach(b => {
                 b.style.height = `${b.dataset.h || 0}px`;
             });
-            const st = entry.node.querySelector('[style*="position:relative"]');
             const host = entry.node.firstElementChild;
-            if (host) dropConfetti(host);
+            if (host) {
+                dropConfetti(host, 10);
+                setTimeout(() => dropConfetti(host, 9), 380);
+                setTimeout(() => dropConfetti(host, 7), 760);
+            }
         });
     }
 
@@ -884,7 +1129,9 @@ function buildPodium(days) {
 
         const b = el('button', 'sts-tab', label);
         b.type = 'button';
+        b.style.transition = 'all 0.26s cubic-bezier(0.2,1,0.3,1)';
         if (fancyOn()) b.classList.add('sts-fx-press');
+        attachRipple(b, 'rgba(255,255,255,0.4)');
         b.addEventListener('click', () => {
             tabs.querySelectorAll('.sts-tab').forEach(x => x.classList.remove('sts-tab-on'));
             b.classList.add('sts-tab-on');
@@ -914,6 +1161,7 @@ function buildDevTools() {
         const b = el('button', 'menu_button', label);
         b.type = 'button';
         if (fancyOn()) b.classList.add('sts-fx-press');
+        attachRipple(b, 'rgba(255,255,255,0.32)');
         b.addEventListener('click', fn);
         row.append(b);
     }
@@ -949,6 +1197,7 @@ function openSheet() {
         }
         const cardBg = toOpaque(themeColor('--SmartThemeBlurTintColor', ''), '#1e1e26');
         const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+        const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
 
         const canModal = !!window.HTMLDialogElement;
         let dlg = document.getElementById('sts_dialog');
@@ -961,45 +1210,67 @@ function openSheet() {
                 'width:calc(100% - 28px)', 'max-width:520px',
                 'height:auto', 'max-height:calc(100% - 28px)',
                 'display:flex', 'flex-direction:column', 'box-sizing:border-box',
-                'padding:0', 'border:none', 'border-radius:24px', 'overflow:hidden',
+                'padding:0', 'border:none', 'border-radius:26px', 'overflow:hidden',
                 `background:${cardBg}`, 'opacity:1',
                 'color:var(--SmartThemeBodyColor, #eee)',
-                'box-shadow:0 22px 64px rgba(0,0,0,0.55)',
+                'box-shadow:0 24px 70px rgba(0,0,0,0.58)',
                 'z-index:2147483647',
             ].join(';');
 
             const head = document.createElement('div');
+            head.id = 'sts_head';
             head.style.cssText = [
-                'flex:0 0 auto', 'display:flex', 'align-items:center', 'justify-content:space-between',
-                'gap:10px', 'padding:14px 16px', `background:${cardBg}`,
+                'flex:0 0 auto', 'position:relative',
+                'display:flex', 'align-items:center', 'justify-content:space-between',
+                'gap:10px', 'padding:15px 16px', `background:${cardBg}`,
                 'border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
             ].join(';');
 
-            const title = document.createElement('div');
-            title.textContent = '⏱️ เวลาบนหน้าจอ';
-            title.style.cssText = 'font-size:1.12em;font-weight:700;letter-spacing:0.01em';
+            const titleWrap = document.createElement('div');
+            titleWrap.style.cssText = 'display:flex;align-items:center;gap:8px;min-width:0';
+            const icon = el('div', fancyOn() ? 'sts-fx-spin' : null, '⏳');
+            icon.style.cssText = 'font-size:1.05em;line-height:1';
+            const title = el('div', null, 'เวลาบนหน้าจอ');
+            title.style.cssText = 'font-size:1.12em;font-weight:800;letter-spacing:0.01em';
+            titleWrap.append(icon, title);
 
             const btnX = document.createElement('button');
             btnX.type = 'button';
             btnX.textContent = '✕ ปิด';
-            btnX.className = fancyOn() ? 'sts-fx-press' : '';
+            if (fancyOn()) btnX.className = 'sts-fx-press';
             btnX.style.cssText = [
-                'flex:0 0 auto', 'cursor:pointer', 'padding:8px 15px', 'border-radius:999px',
-                'font-size:0.9em', 'font-weight:700', 'border:none',
-                `background:${accent}`,
+                'flex:0 0 auto', 'cursor:pointer', 'padding:8px 16px', 'border-radius:999px',
+                'font-size:0.9em', 'font-weight:800', 'border:none',
+                `background:linear-gradient(92deg, ${accent}, ${second})`,
                 'color:var(--SmartThemeBlurTintColor, #111)',
-                'box-shadow:0 4px 14px rgba(0,0,0,0.28)',
+                'box-shadow:0 5px 16px rgba(0,0,0,0.3)',
             ].join(';');
             btnX.addEventListener('click', closeSheet);
-            head.append(title, btnX);
+            attachRipple(btnX, 'rgba(255,255,255,0.45)');
+            head.append(titleWrap, btnX);
+
+            // แถบสีไล่เฉดเรืองใต้ขอบหัว
+            const rail = el('div');
+            rail.style.cssText = [
+                'position:absolute', 'left:0', 'right:0', 'bottom:0', 'height:2px',
+                `background:linear-gradient(90deg, transparent, ${accent}, ${second}, transparent)`,
+            ].join(';');
+            if (fancyOn()) rail.classList.add('sts-fx-glowpulse');
+            head.append(rail);
 
             const body = document.createElement('div');
             body.id = 'sts_body';
             body.style.cssText = [
                 'flex:1 1 auto', 'min-height:0',
                 'overflow-y:auto', 'overscroll-behavior:contain', '-webkit-overflow-scrolling:touch',
-                'padding:12px 16px 20px', 'box-sizing:border-box',
+                'padding:12px 16px 22px', 'box-sizing:border-box',
             ].join(';');
+            // เลื่อนลงแล้วหัวเข้มขึ้นเล็กน้อย
+            body.addEventListener('scroll', () => {
+                const h = document.getElementById('sts_head');
+                if (!h) return;
+                h.style.boxShadow = body.scrollTop > 6 ? '0 6px 18px rgba(0,0,0,0.28)' : 'none';
+            }, { passive: true });
 
             dlg.append(head, body);
             document.body.append(dlg);
@@ -1008,7 +1279,7 @@ function openSheet() {
             dlg.addEventListener('cancel', ev => { ev.preventDefault(); closeSheet(); });
         } else {
             dlg.style.background = cardBg;
-            const head = dlg.firstElementChild;
+            const head = document.getElementById('sts_head');
             if (head) head.style.background = cardBg;
         }
 
@@ -1114,7 +1385,6 @@ window.STS_TRACK = () => {
         กำลังนับ: activeSince > 0,
         ค้างอยู่วินาที: activeSince > 0 ? Math.round((now - activeSince) / 1000) : 0,
         เขียนแล้ววันนี้: fmtClock(saved),
-        ว่างมาแล้ววินาที: lastActivity ? Math.round((now - lastActivity) / 1000) : '-',
         หน้าจอ: document.visibilityState,
         idleนาที: getSettings().idleMinutes,
         ลูกเล่น: fancyOn(),
@@ -1133,13 +1403,19 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 7 · v0.8.0</div>
+      <div class="sts-stage-tag">Stage 8 · v0.9.0</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
         <span id="sts_idle_out" class="sts-value-pill">5 นาที</span>
       </label>
       <input id="sts_idle" class="sts-range" type="range" min="1" max="60" step="1" value="5">
+
+      <label class="sts-field-label" for="sts_goal">
+        เป้าหมายรายวัน (วงแหวนในการ์ด)
+        <span id="sts_goal_out" class="sts-value-pill">120 นาที</span>
+      </label>
+      <input id="sts_goal" class="sts-range" type="range" min="15" max="480" step="15" value="120">
 
       <label class="sts-check">
         <input id="sts_hide" type="checkbox">
@@ -1174,6 +1450,23 @@ function bindPanel() {
             out.classList.add('sts-pulse');
             getSettings().idleMinutes = v;
             saveSettings();
+        });
+    }
+
+    const goal = document.getElementById('sts_goal');
+    const goalOut = document.getElementById('sts_goal_out');
+    if (goal && goalOut) {
+        goal.value = String(s.dailyGoalMin);
+        goalOut.textContent = `${s.dailyGoalMin} นาที`;
+        goal.addEventListener('input', () => {
+            const v = Math.min(480, Math.max(15, Number(goal.value) || 120));
+            goalOut.textContent = `${v} นาที`;
+            goalOut.classList.remove('sts-pulse');
+            void goalOut.offsetWidth;
+            goalOut.classList.add('sts-pulse');
+            getSettings().dailyGoalMin = v;
+            saveSettings();
+            if (document.getElementById('sts_dialog')?.open) renderSheet();
         });
     }
 
