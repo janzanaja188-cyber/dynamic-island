@@ -356,30 +356,40 @@ function openSheet() {
             scrim = document.createElement('div');
             scrim.id = 'sts_scrim';
             Object.assign(scrim.style, {
-                position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+                position: 'fixed', top: '0', left: '0',
+                width: '100%', height: '100vh',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxSizing: 'border-box',
                 background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
-                zIndex: '2147483647', opacity: '1', pointerEvents: 'auto',
+                zIndex: '2147483647',
             });
+            // เบราว์เซอร์ใหม่ใช้ค่านี้ทับ (หักแถบเบราว์เซอร์ให้) รุ่นเก่าเมิน ก็คง 100vh
+            scrim.style.height = '100dvh';
+            // เผื่อจอมีติ่งบน/แถบล่าง แผ่นจะไม่โดนบัง
+            scrim.style.paddingTop = 'max(14px, env(safe-area-inset-top))';
+            scrim.style.paddingBottom = 'max(14px, env(safe-area-inset-bottom))';
+            scrim.style.paddingLeft = '14px';
+            scrim.style.paddingRight = '14px';
 
             const sheet = document.createElement('div');
             sheet.id = 'sts_sheet';
             Object.assign(sheet.style, {
-                width: '100%', maxWidth: '520px', height: '88vh',
+                width: '100%', maxWidth: '520px',
+                maxHeight: '100%',              // ไม่เกินพื้นที่ scrim ที่หัก padding แล้ว
                 display: 'flex', flexDirection: 'column',
-                padding: '12px 14px 22px',
-                borderRadius: '26px',
+                boxSizing: 'border-box',
+                borderRadius: '22px', overflow: 'hidden',
                 background: 'var(--SmartThemeBlurTintColor, #1b1b1f)',
                 color: 'var(--SmartThemeBodyColor, #eee)',
                 border: '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
-                boxShadow: '0 -14px 44px rgba(0,0,0,0.4)',
-                overflow: 'hidden',
+                boxShadow: '0 18px 50px rgba(0,0,0,0.45)',
             });
 
             const head = document.createElement('div');
             Object.assign(head.style, {
+                flex: '0 0 auto',                // หัวไม่หด ไม่เลื่อน อยู่กับที่
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: '8px',
+                padding: '12px 14px 8px',
             });
 
             const title = document.createElement('div');
@@ -390,34 +400,34 @@ function openSheet() {
             btnX.textContent = '✕';
             btnX.type = 'button';
             Object.assign(btnX.style, {
-                width: '30px', height: '30px', borderRadius: '50%',
+                width: '30px', height: '30px', borderRadius: '50%', flex: '0 0 auto',
                 background: 'transparent', color: 'inherit',
                 border: '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
                 cursor: 'pointer', opacity: '0.6',
             });
             btnX.addEventListener('click', closeSheet);
-
             head.append(title, btnX);
 
             const body = document.createElement('div');
             body.id = 'sts_body';
             Object.assign(body.style, {
-                flex: '1 auto', overflowY: 'auto', padding: '10px 4px 0',
+                flex: '1 1 auto',
+                minHeight: '0',                 // ★ หัวใจของการเลื่อน — ให้ body หดได้ใน flex column
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',  // เลื่อนสุดแล้วไม่ลากหน้าแชทข้างหลังไปด้วย
                 WebkitOverflowScrolling: 'touch',
+                padding: '4px 14px 18px',
             });
 
             sheet.append(head, body);
             scrim.append(sheet);
-            scrim.addEventListener('click', ev => {
-                if (ev.target === scrim) closeSheet();
-            });
+            scrim.addEventListener('click', ev => { if (ev.target === scrim) closeSheet(); });
             document.body.append(scrim);
         }
 
         renderSheet();
         scrim.style.display = 'flex';
-
-        console.log(`${LOG} ✅ openSheet · fullscreen · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
+        console.log(`${LOG} ✅ openSheet · fit+scroll · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
