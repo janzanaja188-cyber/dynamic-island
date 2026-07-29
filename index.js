@@ -1,5 +1,5 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Screen Time Stats · v0.7.0 (Stage 6) — นับสด + กันปั๊มข้อความ + โพเดียมอันดับ
+// Screen Time Stats · v0.8.0 (Stage 7) — ชั้นตกแต่งเต็ม ตรรกะการนับคงเดิม
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
@@ -7,18 +7,19 @@ const LS_MIRROR = `${MODULE_NAME}:mirror`;
 const DEMO_PREFIX = 'demo:';
 const MENU_ITEM_ID = 'sts_menu_item';
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-const TICK_MS = 5000;        // เขียนยอดลงฐานข้อมูลทุก 5 วินาที
-const MSG_GAP_MS = 1500;     // ข้อความห่างกันน้อยกว่านี้ = ไม่นับ (กันยิงรัว)
+const TICK_MS = 5000;
+const MSG_GAP_MS = 1500;
 
 window.STS_LOADED = 'parsed';
 console.log(`${LOG} 1/3 อ่านไฟล์แล้ว`);
 
 const DEFAULTS = {
-    version: 7,
+    version: 8,
     idleMinutes: 5,
     hideNames: false,
-    daily: {},   // คีย์ตัวละคร → { 'YYYYMMDD(พ.ศ.)': [ms, 0, ข้อความบอท] }
-    meta: {},    // คีย์ตัวละคร → { name, avatar, lastSeen }
+    fancy: true,        // เปิด/ปิดลูกเล่นทั้งชุด
+    daily: {},
+    meta: {},
 };
 
 /* ══════════ ที่เก็บข้อมูล ══════════ */
@@ -53,6 +54,16 @@ function saveSettings() {
     catch (err) { console.warn(`${LOG} เขียน localStorage พลาด`, err); }
 }
 
+/** เครื่องผู้ใช้ขอลดการเคลื่อนไหวไหม */
+function reducedMotion() {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch { return false; }
+}
+
+function fancyOn() {
+    return getSettings().fancy && !reducedMotion();
+}
+
 /* ══════════ วันที่ + รูปแบบตัวเลข ══════════ */
 
 function dateKey(d = new Date()) {
@@ -76,7 +87,6 @@ function shortMinutes(ms) {
     return m ? `${h}ชม${m}` : `${h}ชม`;
 }
 
-/** ชม:นาที:วินาที สำหรับนาฬิกาเดินสด */
 function fmtClock(ms) {
     const t = Math.max(0, Math.floor(ms / 1000));
     const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
@@ -146,7 +156,6 @@ function currentTarget() {
     return null;
 }
 
-/** path รูปอวาตาร์ของ ST */
 function avatarUrl(file) {
     if (!file) return null;
     return `characters/${encodeURIComponent(file)}`;
@@ -186,17 +195,17 @@ function addBotMsg(key, name, avatar) {
     saveSettings();
 }
 
-/* ══════════ ★ ตัวนับเวลาจริง ══════════ */
+/* ══════════ ตัวนับเวลาจริง (คงเดิมทั้งก้อน) ══════════ */
 
 let liveKey = null;
 let liveName = null;
 let liveAvatar = null;
-let activeSince = 0;       // เวลาที่เริ่มนับช่วงนี้ (0 = หยุดพัก)
+let activeSince = 0;
 let lastActivity = 0;
 let domThrottle = 0;
 let trackerReady = false;
-let lastMsgStamp = 0;      // เวลาข้อความบอทล่าสุดที่นับไป
-let seenMsgIds = new Set(); // ลายนิ้วมือข้อความที่นับแล้ว กันปัด/รีเจนซ้ำ
+let lastMsgStamp = 0;
+let seenMsgIds = new Set();
 
 function markActivity() {
     const now = Date.now();
@@ -214,7 +223,6 @@ function onDomActivity() {
     markActivity();
 }
 
-/** บวกเวลาที่ผ่านไปเข้ายอด ตัดเที่ยงคืนให้ลงถูกวัน */
 function commit(endTs) {
     if (!liveKey || activeSince === 0) return;
     let start = activeSince;
@@ -248,7 +256,7 @@ function tick() {
 function onChatChanged() {
     commit(Date.now());
     activeSince = 0;
-    seenMsgIds = new Set();     // เปลี่ยนห้อง = ล้างลายนิ้วมือของห้องเก่า
+    seenMsgIds = new Set();
     const t = currentTarget();
     liveKey = t?.key || null;
     liveName = t?.name || null;
@@ -270,19 +278,17 @@ function onVisibility() {
     }
 }
 
-/** ★ ลายนิ้วมือข้อความ — ปัด/รีเจน/ข้อความเดิม จะได้ลายซ้ำแล้วไม่ถูกนับ */
 function fingerprintLastBotMsg() {
     try {
         const chat = SillyTavern.getContext()?.chat;
         if (!Array.isArray(chat) || !chat.length) return null;
         const idx = chat.length - 1;
         const m = chat[idx];
-        if (!m || m.is_user) return null;                  // ข้อความฝั่งเราไม่นับเลย
-        if (m.is_system) return null;                      // ข้อความระบบไม่นับ
+        if (!m || m.is_user) return null;
+        if (m.is_system) return null;
         const text = String(m.mes || '');
         if (!text.trim()) return null;
         const swipeCount = Array.isArray(m.swipes) ? m.swipes.length : 0;
-        // ตำแหน่ง + จำนวน swipe + ความยาว + หัวท้ายข้อความ
         return `${idx}|${swipeCount}|${text.length}|${text.slice(0, 24)}|${text.slice(-24)}`;
     } catch (err) {
         console.warn(`${LOG} ทำลายนิ้วมือข้อความไม่ได้`, err);
@@ -331,7 +337,6 @@ function startTracker() {
     if (ev.CHAT_CHANGED) ctx.eventSource.on(ev.CHAT_CHANGED, onChatChanged);
     if (ev.CHARACTER_MESSAGE_RENDERED) ctx.eventSource.on(ev.CHARACTER_MESSAGE_RENDERED, onBotMessage);
     else if (ev.MESSAGE_RECEIVED) ctx.eventSource.on(ev.MESSAGE_RECEIVED, onBotMessage);
-    // ข้อความฝั่งผู้ใช้: ถือเป็นแค่ "การขยับ" ไม่นับเป็นสถิติ
     if (ev.MESSAGE_SENT) ctx.eventSource.on(ev.MESSAGE_SENT, markActivity);
 
     document.addEventListener('visibilitychange', onVisibility);
@@ -394,6 +399,84 @@ function clearDemo() {
     say(`ล้างข้อมูลตัวอย่างแล้ว ${n} ตัว (ข้อมูลจริงไม่โดน)`, 'success');
 }
 
+/* ══════════ ★ ชั้นตกแต่ง: CSS keyframes ══════════ */
+
+const FX_CSS = `
+@keyframes sts-fx-rise{
+  0%{opacity:0;transform:translateY(16px) scale(0.97)}
+  60%{opacity:1;transform:translateY(-3px) scale(1.006)}
+  100%{opacity:1;transform:none}
+}
+@keyframes sts-fx-grow{
+  0%{transform:scaleY(0)}
+  70%{transform:scaleY(1.06)}
+  100%{transform:scaleY(1)}
+}
+@keyframes sts-fx-sweep{
+  0%{background-position:-160% 0}
+  100%{background-position:260% 0}
+}
+@keyframes sts-fx-breathe{
+  0%,100%{box-shadow:0 0 0 0 rgba(127,127,127,0)}
+  50%{box-shadow:0 0 16px 2px var(--sts-accent, #8ab4ff)}
+}
+@keyframes sts-fx-bob{
+  0%,100%{transform:translateY(0) rotate(-4deg)}
+  50%{transform:translateY(-5px) rotate(4deg)}
+}
+@keyframes sts-fx-blink{
+  0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:0.35;transform:scale(0.78)}
+}
+@keyframes sts-fx-fall{
+  0%{opacity:0;transform:translateY(-24px) rotate(0deg)}
+  12%{opacity:1}
+  100%{opacity:0;transform:translateY(150px) rotate(420deg)}
+}
+@keyframes sts-fx-pop{
+  0%{transform:scale(1)}
+  45%{transform:scale(1.16)}
+  100%{transform:scale(1)}
+}
+.sts-fx-card{animation:sts-fx-rise 0.52s cubic-bezier(0.2,1.2,0.3,1) both}
+.sts-fx-press{transition:transform 0.14s cubic-bezier(0.2,1.2,0.3,1)}
+.sts-fx-press:active{transform:scale(0.96)}
+.sts-fx-shine{
+  background-image:linear-gradient(105deg,
+    rgba(255,255,255,0) 38%,
+    rgba(255,255,255,0.34) 50%,
+    rgba(255,255,255,0) 62%);
+  background-size:220% 100%;
+  background-repeat:no-repeat;
+  animation:sts-fx-sweep 3.4s linear infinite;
+}
+.sts-fx-crown{animation:sts-fx-bob 2.6s ease-in-out infinite}
+.sts-fx-dot{animation:sts-fx-blink 1.15s ease-in-out infinite}
+.sts-fx-glow{animation:sts-fx-breathe 2.8s ease-in-out infinite}
+.sts-fx-confetti{position:absolute;border-radius:2px;pointer-events:none;
+  animation:sts-fx-fall 1.5s cubic-bezier(0.3,0.7,0.4,1) forwards}
+@media (prefers-reduced-motion: reduce){
+  .sts-fx-card,.sts-fx-shine,.sts-fx-crown,.sts-fx-dot,.sts-fx-glow,.sts-fx-confetti{
+    animation:none !important}
+}
+`;
+
+function ensureFx() {
+    if (document.getElementById('sts_fx_css')) return;
+    const st = document.createElement('style');
+    st.id = 'sts_fx_css';
+    st.textContent = FX_CSS + '#sts_dialog::backdrop{background:rgba(0,0,0,0.62)}';
+    document.head.append(st);
+}
+
+/** อ่านสีเน้นจากธีมมาใช้ซ้ำได้ทั้งไฟล์ */
+function themeColor(varName, fallback) {
+    try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        return v || fallback;
+    } catch { return fallback; }
+}
+
 /* ══════════ ตัวช่วยสร้าง DOM ══════════ */
 
 function el(tag, cls, text) {
@@ -403,30 +486,44 @@ function el(tag, cls, text) {
     return n;
 }
 
+/** การ์ดพร้อมสปริงเข้าเป็นลำดับ */
+function fxCard(order = 0) {
+    const card = el('div', 'sts-card');
+    if (fancyOn()) {
+        card.classList.add('sts-fx-card');
+        card.style.animationDelay = `${order * 70}ms`;
+    }
+    return card;
+}
+
 function countUp(node, target, suffix = '') {
-    const dur = 700;
+    if (!fancyOn()) { node.textContent = `${target}${suffix}`; return; }
+    const dur = 900;
     const t0 = performance.now();
     function frame(now) {
         const p = Math.min(1, (now - t0) / dur);
-        const eased = 1 - Math.pow(1 - p, 3);
+        const eased = 1 - Math.pow(1 - p, 4);
         node.textContent = `${Math.round(target * eased)}${suffix}`;
         if (p < 1) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
 }
 
-/** วงกลมรูปอวาตาร์ โหลดไม่ได้ก็ใช้ตัวอักษรแรกของชื่อ */
-function avatarNode(entry, size, ringColor) {
+function avatarNode(entry, size, ringColor, glow) {
     const box = el('div');
     box.style.cssText = [
         `width:${size}px`, `height:${size}px`, 'border-radius:50%',
-        'overflow:hidden', 'flex:0 0 auto',
+        'overflow:hidden', 'flex:0 0 auto', 'position:relative',
         'display:flex', 'align-items:center', 'justify-content:center',
         `border:2px solid ${ringColor}`,
         'background:rgba(127,127,127,0.18)',
         `font-size:${Math.round(size / 2.4)}px`, 'font-weight:700',
-        'box-shadow:0 4px 14px rgba(0,0,0,0.35)',
+        'box-shadow:0 5px 16px rgba(0,0,0,0.32)',
     ].join(';');
+    if (glow && fancyOn()) {
+        box.style.setProperty('--sts-accent', ringColor);
+        box.classList.add('sts-fx-glow');
+    }
 
     const url = avatarUrl(entry.avatar);
     if (url) {
@@ -445,12 +542,34 @@ function avatarNode(entry, size, ringColor) {
     return box;
 }
 
-/* ══════════ การ์ด: สรุป + นาฬิกาเดินสด ══════════ */
+/** เกล็ดฉลองร่วงเหนือโพเดียม ลบตัวเองหลังเล่นจบ */
+function dropConfetti(host, count = 14) {
+    if (!fancyOn()) return;
+    const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
+    const palette = [accent, second, '#ffd45e', '#c0c6d4'];
+    for (let i = 0; i < count; i++) {
+        const bit = el('div', 'sts-fx-confetti');
+        const w = 4 + Math.round(Math.random() * 4);
+        bit.style.cssText = [
+            `width:${w}px`, `height:${w + Math.round(Math.random() * 6)}px`,
+            `left:${6 + Math.random() * 88}%`, 'top:0',
+            `background:${palette[i % palette.length]}`,
+            `animation-delay:${Math.random() * 520}ms`,
+            `opacity:0`,
+        ].join(';');
+        bit.addEventListener('animationend', () => bit.remove());
+        host.append(bit);
+    }
+}
+
+/* ══════════ การ์ด: นาฬิกาเดินสด ══════════ */
 
 let liveTimer = null;
 
 function buildLive() {
-    const card = el('div', 'sts-card');
+    const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const card = fxCard(0);
     card.append(el('div', 'sts-card-cap', 'กำลังนับอยู่'));
 
     const rowTop = el('div');
@@ -460,33 +579,56 @@ function buildLive() {
     who.style.cssText = 'flex:1 1 auto;min-width:0';
     const nameLine = el('div', null, liveName || 'ยังไม่ได้เปิดห้องแชท');
     nameLine.style.cssText = 'font-size:0.95em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+
+    const stateWrap = el('div');
+    stateWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px';
+    const dot = el('div');
+    dot.id = 'sts_live_dot';
+    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;flex:0 0 auto';
     const stateLine = el('div', 'sts-hint');
     stateLine.id = 'sts_live_state';
-    stateLine.style.cssText = 'margin:2px 0 0';
-    who.append(nameLine, stateLine);
+    stateLine.style.cssText = 'margin:0';
+    stateWrap.append(dot, stateLine);
+
+    who.append(nameLine, stateWrap);
 
     const clock = el('div');
     clock.id = 'sts_live_clock';
     clock.style.cssText = [
-        'flex:0 0 auto', 'font-size:1.7em', 'font-weight:700', 'line-height:1',
-        'font-variant-numeric:tabular-nums',
-        'color:var(--SmartThemeQuoteColor, #8ab4ff)',
+        'flex:0 0 auto', 'font-size:1.75em', 'font-weight:700', 'line-height:1',
+        'font-variant-numeric:tabular-nums', `color:${accent}`,
     ].join(';');
     clock.textContent = '0:00';
 
     rowTop.append(who, clock);
     card.append(rowTop);
 
-    // เดินสดทุกวินาที: ยอดที่เขียนแล้ว + ช่วงที่ยังนับค้างอยู่
+    let lastSec = -1;
     function paint() {
         const c = document.getElementById('sts_live_clock');
         const st = document.getElementById('sts_live_state');
-        if (!c || !st) { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } return; }
+        const d = document.getElementById('sts_live_dot');
+        if (!c || !st || !d) { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } return; }
+
         const saved = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[0] || 0) : 0;
         const pending = activeSince > 0 ? (Date.now() - activeSince) : 0;
+        const totalSec = Math.floor((saved + pending) / 1000);
         c.textContent = fmtClock(saved + pending);
+
+        // เต้นเบา ๆ ทุกครั้งที่วินาทีเปลี่ยน
+        if (fancyOn() && totalSec !== lastSec && activeSince > 0) {
+            c.style.animation = 'none';
+            void c.offsetWidth;
+            c.style.animation = 'sts-fx-pop 0.3s ease';
+        }
+        lastSec = totalSec;
+
+        const counting = activeSince > 0;
+        d.style.background = counting ? '#4ade80' : 'rgba(127,127,127,0.5)';
+        d.classList.toggle('sts-fx-dot', counting && fancyOn());
+
         const msgs = liveKey ? (getSettings().daily?.[liveKey]?.[dateKey()]?.[2] || 0) : 0;
-        st.textContent = `${activeSince > 0 ? '🟢 กำลังนับ' : '⚪ หยุดพัก'} · วันนี้ ${msgs} ข้อความจากบอท`;
+        st.textContent = `${counting ? 'กำลังนับ' : 'หยุดพัก'} · วันนี้ ${msgs} ข้อความจากบอท`;
     }
     paint();
     if (liveTimer) clearInterval(liveTimer);
@@ -495,23 +637,41 @@ function buildLive() {
     return card;
 }
 
+/* ══════════ การ์ด: สรุป ══════════ */
+
 function buildSummary(rows) {
+    const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const second = themeColor('--SmartThemeEmColor', '#c8a2ff');
     const totalMs = rows.reduce((a, r) => a + r.ms, 0);
     const totalMsg = rows.reduce((a, r) => a + r.msg, 0);
     const avgMin = Math.round(totalMs / 60000 / (rows.length || 1));
+    const best = rows.reduce((a, r) => (r.ms > a.ms ? r : a), rows[0] || { ms: 0, dow: '-' });
 
-    const card = el('div', 'sts-card sts-hero');
+    const card = fxCard(1);
+    card.style.background = `linear-gradient(140deg, rgba(127,127,127,0.16), rgba(127,127,127,0.06))`;
     card.append(el('div', 'sts-hero-cap', 'รวม 7 วันที่ผ่านมา'));
 
     const big = el('div', 'sts-hero-big');
     const num = el('span', 'sts-hero-num', '0');
+    num.style.cssText = [
+        'font-size:2.6em', 'font-weight:800', 'line-height:1',
+        'font-variant-numeric:tabular-nums',
+        `background:linear-gradient(92deg, ${accent}, ${second})`,
+        '-webkit-background-clip:text', 'background-clip:text',
+        '-webkit-text-fill-color:transparent',
+    ].join(';');
     big.append(num, el('span', 'sts-hero-unit', ' นาที'));
     card.append(big);
     countUp(num, Math.round(totalMs / 60000));
 
     const chips = el('div', 'sts-chips');
-    for (const [k, v] of [['เฉลี่ย/วัน', `${avgMin} นาที`], ['ข้อความจากบอท', `${totalMsg}`]]) {
+    for (const [k, v] of [
+        ['เฉลี่ย/วัน', `${avgMin} นาที`],
+        ['ข้อความจากบอท', `${totalMsg}`],
+        ['วันที่คุยเยอะสุด', `${best.dow || '-'}`],
+    ]) {
         const c = el('div', 'sts-chip');
+        c.style.borderRadius = '15px';
         c.append(el('span', 'sts-chip-k', k), el('span', 'sts-chip-v', v));
         chips.append(c);
     }
@@ -519,8 +679,11 @@ function buildSummary(rows) {
     return card;
 }
 
+/* ══════════ การ์ด: กราฟรายวัน ══════════ */
+
 function buildChart(rows) {
-    const card = el('div', 'sts-card');
+    const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const card = fxCard(2);
     card.append(el('div', 'sts-card-cap', 'รายวัน'));
 
     const peak = Math.max(1, ...rows.map(r => r.ms));
@@ -529,13 +692,21 @@ function buildChart(rows) {
     rows.forEach((r, i) => {
         const col = el('button', 'sts-col');
         col.type = 'button';
+        if (fancyOn()) col.classList.add('sts-fx-press');
         if (r.isToday) col.classList.add('sts-col-today');
 
         const tip = el('div', 'sts-tip', `${shortMinutes(r.ms)} · ${r.msg} ข้อความ`);
         const track = el('div', 'sts-track');
         const fill = el('div', 'sts-fill');
         fill.style.height = `${Math.max(3, Math.round((r.ms / peak) * 100))}%`;
-        fill.style.animationDelay = `${i * 70}ms`;
+        if (fancyOn()) {
+            fill.style.animation = `sts-fx-grow 0.62s cubic-bezier(0.2,1.2,0.3,1) both`;
+            fill.style.animationDelay = `${180 + i * 68}ms`;
+            if (r.isToday) {
+                fill.classList.add('sts-fx-shine');
+                fill.style.setProperty('--sts-accent', accent);
+            }
+        }
         track.append(fill);
 
         col.append(tip, track, el('div', 'sts-dow', r.dow));
@@ -551,22 +722,22 @@ function buildChart(rows) {
     return card;
 }
 
-/* ══════════ ★ โพเดียมอันดับ ══════════ */
+/* ══════════ การ์ด: โพเดียมอันดับ ══════════ */
 
 function buildPodium(days) {
     const s = getSettings();
-    const card = el('div', 'sts-card');
+    const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
+    const card = fxCard(3);
     card.append(el('div', 'sts-card-cap', 'อันดับ'));
 
     const tabs = el('div', 'sts-tabs');
     const wrap = el('div');
     const views = {};
 
-    // แท่ง: [ตำแหน่งบนจอ, อันดับจริง, ความสูงแท่น, สีเหรียญ, ป้าย]
     const SLOTS = [
-        { rank: 2, h: 52, color: '#c0c6d4', label: '2' },
-        { rank: 1, h: 84, color: '#ffd45e', label: '1' },
-        { rank: 3, h: 34, color: '#d99a6c', label: '3' },
+        { rank: 2, h: 54, color: '#c0c6d4', label: '2' },
+        { rank: 1, h: 88, color: '#ffd45e', label: '1' },
+        { rank: 3, h: 36, color: '#d99a6c', label: '3' },
     ];
 
     function makeView(field) {
@@ -579,8 +750,9 @@ function buildPodium(days) {
 
         const stage = el('div');
         stage.style.cssText = [
+            'position:relative', 'overflow:hidden',
             'display:flex', 'align-items:flex-end', 'justify-content:center',
-            'gap:8px', 'padding:14px 0 2px',
+            'gap:8px', 'padding:16px 0 2px',
         ].join(';');
 
         SLOTS.forEach((slot, order) => {
@@ -589,11 +761,10 @@ function buildPodium(days) {
             colWrap.style.cssText = 'flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0';
 
             if (!r) {
-                // ไม่มีใครในอันดับนี้ — เว้นแท่นว่างไว้ให้เห็นโครง
                 const ghost = el('div');
                 ghost.style.cssText = [
-                    'width:100%', 'border-radius:12px 12px 0 0',
-                    `height:${slot.h}px`, 'background:rgba(127,127,127,0.10)',
+                    'width:100%', 'border-radius:14px 14px 0 0',
+                    `height:${slot.h}px`, 'background:rgba(127,127,127,0.09)',
                 ].join(';');
                 colWrap.append(ghost);
                 stage.append(colWrap);
@@ -604,44 +775,53 @@ function buildPodium(days) {
 
             if (slot.rank === 1) {
                 const crown = el('div', null, '👑');
-                crown.style.cssText = 'font-size:1.15em;line-height:1;margin-bottom:2px';
+                crown.style.cssText = 'font-size:1.2em;line-height:1;margin-bottom:2px';
+                if (fancyOn()) crown.classList.add('sts-fx-crown');
                 colWrap.append(crown);
             }
 
-            colWrap.append(avatarNode(r, slot.rank === 1 ? 62 : 48, slot.color));
+            colWrap.append(avatarNode(r, slot.rank === 1 ? 64 : 48, slot.color, slot.rank === 1));
 
             const name = el('div', null, nm);
             name.style.cssText = [
                 'margin-top:6px', 'max-width:100%',
-                `font-size:${slot.rank === 1 ? '0.88em' : '0.8em'}`, 'font-weight:600',
+                `font-size:${slot.rank === 1 ? '0.9em' : '0.8em'}`, 'font-weight:700',
                 'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap', 'text-align:center',
             ].join(';');
             colWrap.append(name);
 
             const t = el('div', null, shortMinutes(r.ms));
             t.style.cssText = [
-                'font-size:0.86em', 'font-weight:700', 'font-variant-numeric:tabular-nums',
-                'color:var(--SmartThemeQuoteColor, #8ab4ff)',
+                'font-size:0.88em', 'font-weight:700', 'font-variant-numeric:tabular-nums',
+                `color:${accent}`,
             ].join(';');
             colWrap.append(t);
 
             const c = el('div', null, `${r.msg} ข้อความ`);
-            c.style.cssText = 'font-size:0.7em;opacity:0.6;margin-bottom:6px';
+            c.style.cssText = 'font-size:0.7em;opacity:0.6;margin-bottom:7px';
             colWrap.append(c);
 
             const block = el('div', 'sts-podium-block');
             block.style.cssText = [
-                'width:100%', 'border-radius:12px 12px 0 0',
-                'height:0px', 'overflow:hidden',
+                'width:100%', 'border-radius:14px 14px 0 0',
+                'height:0px', 'overflow:hidden', 'position:relative',
                 'display:flex', 'align-items:center', 'justify-content:center',
-                `background:linear-gradient(180deg, ${slot.color}, rgba(127,127,127,0.16))`,
-                'transition:height 0.5s cubic-bezier(0.2, 1, 0.3, 1)',
-                `transition-delay:${order * 90}ms`,
-                'box-shadow:inset 0 1px 0 rgba(255,255,255,0.25)',
+                `background:linear-gradient(180deg, ${slot.color}, rgba(127,127,127,0.14))`,
+                'transition:height 0.56s cubic-bezier(0.2,1.25,0.3,1)',
+                `transition-delay:${order * 95}ms`,
+                'box-shadow:inset 0 1px 0 rgba(255,255,255,0.3)',
             ].join(';');
             block.dataset.h = String(slot.h);
+
+            if (fancyOn()) {
+                const shine = el('div', 'sts-fx-shine');
+                shine.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+                shine.style.animationDelay = `${order * 420}ms`;
+                block.append(shine);
+            }
+
             const label = el('div', null, slot.label);
-            label.style.cssText = 'font-size:1.05em;font-weight:800;color:rgba(0,0,0,0.55)';
+            label.style.cssText = 'font-size:1.1em;font-weight:800;color:rgba(0,0,0,0.55);position:relative';
             block.append(label);
             colWrap.append(block);
 
@@ -649,19 +829,20 @@ function buildPodium(days) {
         });
 
         view.append(stage);
+        view.dataset.stage = '1';
 
-        // พื้นเวที
         const floor = el('div');
         floor.style.cssText = [
             'height:4px', 'border-radius:99px', 'margin-bottom:10px',
-            'background:var(--SmartThemeBorderColor, rgba(255,255,255,0.18))',
+            `background:linear-gradient(90deg, transparent, ${accent}, transparent)`,
+            'opacity:0.5',
         ].join(';');
         view.append(floor);
 
-        // อันดับ 4-5 ต่อท้าย
         top.slice(3, 5).forEach((r, i) => {
             const row = el('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 2px';
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 2px;border-radius:12px';
+            if (fancyOn()) row.classList.add('sts-fx-press');
             const no = el('div', null, String(i + 4));
             no.style.cssText = 'flex:0 0 18px;text-align:center;font-size:0.8em;opacity:0.55;font-weight:700';
             row.append(no, avatarNode(r, 28, 'rgba(127,127,127,0.35)'));
@@ -689,6 +870,9 @@ function buildPodium(days) {
             entry.node.querySelectorAll('.sts-podium-block').forEach(b => {
                 b.style.height = `${b.dataset.h || 0}px`;
             });
+            const st = entry.node.querySelector('[style*="position:relative"]');
+            const host = entry.node.firstElementChild;
+            if (host) dropConfetti(host);
         });
     }
 
@@ -700,6 +884,7 @@ function buildPodium(days) {
 
         const b = el('button', 'sts-tab', label);
         b.type = 'button';
+        if (fancyOn()) b.classList.add('sts-fx-press');
         b.addEventListener('click', () => {
             tabs.querySelectorAll('.sts-tab').forEach(x => x.classList.remove('sts-tab-on'));
             b.classList.add('sts-tab-on');
@@ -714,8 +899,11 @@ function buildPodium(days) {
     return card;
 }
 
+/* ══════════ การ์ด: เครื่องมือทดสอบ ══════════ */
+
 function buildDevTools() {
-    const card = el('div', 'sts-card sts-dev');
+    const card = fxCard(4);
+    card.style.opacity = '0.78';
     card.append(el('div', 'sts-card-cap', 'เครื่องมือทดสอบ (จะซ่อนในเวอร์ชันจริง)'));
     const row = el('div', 'sts-btn-row');
     for (const [label, fn] of [
@@ -725,6 +913,7 @@ function buildDevTools() {
     ]) {
         const b = el('button', 'menu_button', label);
         b.type = 'button';
+        if (fancyOn()) b.classList.add('sts-fx-press');
         b.addEventListener('click', fn);
         row.append(b);
     }
@@ -735,6 +924,7 @@ function buildDevTools() {
 function renderSheet() {
     const body = document.getElementById('sts_body');
     if (!body) return;
+    ensureFx();
     const days = lastDays(7);
     const rows = seriesByDay(days);
     body.textContent = '';
@@ -745,27 +935,20 @@ function renderSheet() {
 
 function openSheet() {
     try {
+        ensureFx();
+
         function toOpaque(raw, fallback) {
             if (!raw) return fallback;
             raw = raw.trim();
             let m = raw.match(/rgba?\(([^)]+)\)/i);
-            if (m) { const p = m[1].split(',').map(s => s.trim()); if (p.length >= 3) return `rgb(${p[0]}, ${p[1]}, ${p[2]})`; }
+            if (m) { const p = m[1].split(',').map(x => x.trim()); if (p.length >= 3) return `rgb(${p[0]}, ${p[1]}, ${p[2]})`; }
             m = raw.match(/hsla?\(([^)]+)\)/i);
-            if (m) { const p = m[1].split(',').map(s => s.trim()); if (p.length >= 3) return `hsl(${p[0]}, ${p[1]}, ${p[2]})`; }
+            if (m) { const p = m[1].split(',').map(x => x.trim()); if (p.length >= 3) return `hsl(${p[0]}, ${p[1]}, ${p[2]})`; }
             if (raw[0] === '#') { let h = raw.slice(1); if (h.length === 4) h = h.slice(0, 3); else if (h.length === 8) h = h.slice(0, 6); return `#${h}`; }
             return fallback;
         }
-        let tint = '';
-        try { tint = getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBlurTintColor'); }
-        catch (e) { console.warn(`${LOG} อ่านสีธีมไม่ได้`, e); }
-        const cardBg = toOpaque(tint, '#1e1e26');
-
-        if (!document.getElementById('sts_dialog_css')) {
-            const st = document.createElement('style');
-            st.id = 'sts_dialog_css';
-            st.textContent = '#sts_dialog::backdrop{background:rgba(0,0,0,0.6)}';
-            document.head.append(st);
-        }
+        const cardBg = toOpaque(themeColor('--SmartThemeBlurTintColor', ''), '#1e1e26');
+        const accent = themeColor('--SmartThemeQuoteColor', '#8ab4ff');
 
         const canModal = !!window.HTMLDialogElement;
         let dlg = document.getElementById('sts_dialog');
@@ -778,10 +961,10 @@ function openSheet() {
                 'width:calc(100% - 28px)', 'max-width:520px',
                 'height:auto', 'max-height:calc(100% - 28px)',
                 'display:flex', 'flex-direction:column', 'box-sizing:border-box',
-                'padding:0', 'border:none', 'border-radius:22px', 'overflow:hidden',
+                'padding:0', 'border:none', 'border-radius:24px', 'overflow:hidden',
                 `background:${cardBg}`, 'opacity:1',
                 'color:var(--SmartThemeBodyColor, #eee)',
-                'box-shadow:0 20px 60px rgba(0,0,0,0.55)',
+                'box-shadow:0 22px 64px rgba(0,0,0,0.55)',
                 'z-index:2147483647',
             ].join(';');
 
@@ -791,17 +974,21 @@ function openSheet() {
                 'gap:10px', 'padding:14px 16px', `background:${cardBg}`,
                 'border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15))',
             ].join(';');
+
             const title = document.createElement('div');
             title.textContent = '⏱️ เวลาบนหน้าจอ';
-            title.style.cssText = 'font-size:1.1em;font-weight:600';
+            title.style.cssText = 'font-size:1.12em;font-weight:700;letter-spacing:0.01em';
+
             const btnX = document.createElement('button');
             btnX.type = 'button';
             btnX.textContent = '✕ ปิด';
+            btnX.className = fancyOn() ? 'sts-fx-press' : '';
             btnX.style.cssText = [
-                'flex:0 0 auto', 'cursor:pointer', 'padding:8px 14px', 'border-radius:999px',
-                'font-size:0.9em', 'font-weight:600', 'border:none',
-                'background:var(--SmartThemeQuoteColor, #8ab4ff)',
+                'flex:0 0 auto', 'cursor:pointer', 'padding:8px 15px', 'border-radius:999px',
+                'font-size:0.9em', 'font-weight:700', 'border:none',
+                `background:${accent}`,
                 'color:var(--SmartThemeBlurTintColor, #111)',
+                'box-shadow:0 4px 14px rgba(0,0,0,0.28)',
             ].join(';');
             btnX.addEventListener('click', closeSheet);
             head.append(title, btnX);
@@ -832,7 +1019,7 @@ function openSheet() {
         } else {
             dlg.style.display = 'flex';
         }
-        console.log(`${LOG} ✅ openSheet · dialog(top-layer)`);
+        console.log(`${LOG} ✅ openSheet · fancy=${fancyOn()} · reduced=${reducedMotion()}`);
     } catch (err) {
         console.error(`${LOG} ❌ openSheet ล้ม`, err);
         if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
@@ -840,7 +1027,7 @@ function openSheet() {
 }
 
 function closeSheet() {
-    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }   // หยุดนาฬิกาสดตอนปิด
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
     const dlg = document.getElementById('sts_dialog');
     if (!dlg) return;
     if (typeof dlg.close === 'function' && dlg.open) dlg.close();
@@ -930,7 +1117,7 @@ window.STS_TRACK = () => {
         ว่างมาแล้ววินาที: lastActivity ? Math.round((now - lastActivity) / 1000) : '-',
         หน้าจอ: document.visibilityState,
         idleนาที: getSettings().idleMinutes,
-        ลายนิ้วมือข้อความที่จำไว้: seenMsgIds.size,
+        ลูกเล่น: fancyOn(),
     };
     console.table(out);
     return out;
@@ -946,7 +1133,7 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 6 · v0.7.0</div>
+      <div class="sts-stage-tag">Stage 7 · v0.8.0</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
@@ -959,9 +1146,14 @@ const PANEL_HTML = `
         <span>ซ่อนชื่อตัวละครในอันดับ (สำหรับตอนแคปแชร์)</span>
       </label>
 
+      <label class="sts-check">
+        <input id="sts_fancy" type="checkbox">
+        <span>เปิดลูกเล่นและอนิเมชัน</span>
+      </label>
+
       <hr class="sysHR">
       <input id="sts_btn_open" class="menu_button" type="button" value="เปิดหน้ากราฟ">
-      <p class="sts-hint">นับเวลาเดินสด · นับเฉพาะข้อความฝั่งบอท · ปัดหรือรีเจนไม่นับเพิ่ม</p>
+      <p class="sts-hint">สีทุกชิ้นดึงจากธีมปัจจุบัน · เครื่องที่ตั้งลดการเคลื่อนไหวไว้จะปิดอนิเมชันเอง</p>
     </div>
   </div>
 </div>`;
@@ -990,6 +1182,16 @@ function bindPanel() {
         hide.checked = !!s.hideNames;
         hide.addEventListener('change', () => {
             getSettings().hideNames = hide.checked;
+            saveSettings();
+            if (document.getElementById('sts_dialog')?.open) renderSheet();
+        });
+    }
+
+    const fancy = document.getElementById('sts_fancy');
+    if (fancy) {
+        fancy.checked = !!s.fancy;
+        fancy.addEventListener('change', () => {
+            getSettings().fancy = fancy.checked;
             saveSettings();
             if (document.getElementById('sts_dialog')?.open) renderSheet();
         });
