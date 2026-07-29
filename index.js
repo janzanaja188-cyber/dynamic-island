@@ -1,24 +1,25 @@
 // public/scripts/extensions/third-party/screentime-stats/index.js
-// Stage 4 — กราฟแท่ง 7 วัน ใน popup ที่เรียกจากเมนูไม้กายสิทธิ์ (ยังไม่นับเวลาอัตโนมัติ)
+// Screen Time Stats · v0.4.4 (Stage 4-D) — ไฟล์เต็ม วางทับได้เลย
 
 const MODULE_NAME = 'screentime-stats';
 const LOG = `[${MODULE_NAME}]`;
 const LS_MIRROR = `${MODULE_NAME}:mirror`;
 const DEMO_PREFIX = 'demo:';
+const MENU_ITEM_ID = 'sts_menu_item';
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
 window.STS_LOADED = 'parsed';
-console.log(`${LOG} 1/3 ไฟล์ถูกอ่านแล้ว`);
+console.log(`${LOG} 1/3 อ่านไฟล์แล้ว`);
 
 const DEFAULTS = {
     version: 4,
     idleMinutes: 5,
     hideNames: false,
-    daily: {},
-    meta: {},
+    daily: {},   // คีย์ตัวละคร → { 'YYYYMMDD(พ.ศ.)': [ms, ข้อความเรา, ข้อความบอท] }
+    meta: {},    // คีย์ตัวละคร → { name, lastSeen }
 };
 
-/* ---------- store ---------- */
+/* ══════════ ที่เก็บข้อมูล ══════════ */
 
 function getSettings() {
     let store = null;
@@ -52,7 +53,7 @@ function saveSettings() {
     console.log(`${LOG} saved · server=${serverOk} · keys=${Object.keys(s.daily).length}`);
 }
 
-/* ---------- วันที่ ---------- */
+/* ══════════ วันที่ + รูปแบบตัวเลข ══════════ */
 
 function dateKey(d = new Date()) {
     const y = d.getFullYear() + 543;
@@ -63,8 +64,8 @@ function dateKey(d = new Date()) {
 
 function fmtMinutes(ms) {
     const total = Math.round(ms / 60000);
-    const h = Math.floor(total / 60), m = total % 60;
     if (!total) return '0 นาที';
+    const h = Math.floor(total / 60), m = total % 60;
     return h ? `${h} ชม. ${m} นาที` : `${m} นาที`;
 }
 
@@ -75,7 +76,6 @@ function shortMinutes(ms) {
     return m ? `${h}ชม${m}` : `${h}ชม`;
 }
 
-/** ย้อนหลัง n วัน นับวันนี้เป็นวันสุดท้าย */
 function lastDays(n) {
     const out = [];
     for (let i = n - 1; i >= 0; i--) {
@@ -86,7 +86,7 @@ function lastDays(n) {
     return out;
 }
 
-/* ---------- รวมยอด ---------- */
+/* ══════════ รวมยอด ══════════ */
 
 function seriesByDay(days) {
     const s = getSettings();
@@ -119,7 +119,7 @@ function rankBy(days, field) {
     return bucket;
 }
 
-/* ---------- ตัวละครปัจจุบัน + ปุ่มเทส ---------- */
+/* ══════════ ตัวละครที่เปิดอยู่ + ปุ่มเทส ══════════ */
 
 function currentTarget() {
     try {
@@ -153,7 +153,11 @@ function say(msg, type = 'info') {
 
 function seedDemo() {
     const s = getSettings();
-    const cast = [[`${DEMO_PREFIX}mira`, 'Mira'], [`${DEMO_PREFIX}kite`, 'ไคท์'], [`${DEMO_PREFIX}noon`, 'นุ่น']];
+    const cast = [
+        [`${DEMO_PREFIX}mira`, 'Mira'],
+        [`${DEMO_PREFIX}kite`, 'ไคท์'],
+        [`${DEMO_PREFIX}noon`, 'นุ่น'],
+    ];
     for (const [key, name] of cast) {
         s.daily[key] = s.daily[key] || {};
         for (let i = 0; i < 7; i++) {
@@ -179,7 +183,88 @@ function clearDemo() {
     say(`ล้างข้อมูลตัวอย่างแล้ว ${n} ตัว (ข้อมูลจริงไม่โดน)`, 'success');
 }
 
-/* ---------- กราฟ ---------- */
+/* ══════════ CSS หน้ากราฟ — ฝังจาก JS ไม่พึ่ง style.css ══════════ */
+
+const SHEET_CSS = `
+.sts-scrim{position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;
+background:rgba(0,0,0,0);opacity:0;pointer-events:none;
+transition:opacity .22s ease,background .22s ease;z-index:2147483647}
+.sts-scrim.sts-on{opacity:1;pointer-events:auto;background:rgba(0,0,0,.45);backdrop-filter:blur(3px)}
+.sts-sheet{width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;
+padding:8px 14px 22px;border-radius:26px 26px 0 0;
+background:var(--SmartThemeBlurTintColor,#1b1b1f);color:var(--SmartThemeBodyColor,#eee);
+border:1px solid var(--SmartThemeBorderColor,rgba(255,255,255,.15));border-bottom:none;
+backdrop-filter:blur(24px) saturate(1.4);box-shadow:0 -14px 44px rgba(0,0,0,.4);
+transform:translateY(102%);transition:transform .34s cubic-bezier(.22,1,.28,1)}
+.sts-scrim.sts-on .sts-sheet{transform:translateY(0)}
+.sts-grip{width:38px;height:4px;border-radius:99px;margin:2px auto 8px;opacity:.35;
+background:var(--SmartThemeBodyColor,#eee)}
+.sts-sheet-head{display:flex;align-items:center;justify-content:space-between}
+.sts-sheet-title{font-size:1.05em;font-weight:600}
+.sts-x{width:30px;height:30px;border-radius:50%;cursor:pointer;background:transparent;
+color:inherit;opacity:.6;border:1px solid var(--SmartThemeBorderColor,rgba(255,255,255,.15))}
+.sts-sheet-body{overflow-y:auto;padding:10px 2px 0;-webkit-overflow-scrolling:touch}
+.sts-card{padding:14px;margin-bottom:10px;border-radius:20px;background:rgba(127,127,127,.10);
+border:1px solid var(--SmartThemeBorderColor,rgba(255,255,255,.15));animation:sts-rise .4s ease both}
+@keyframes sts-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.sts-card-cap,.sts-hero-cap{font-size:.75em;opacity:.6;margin-bottom:8px}
+.sts-hero-big{display:flex;align-items:baseline;gap:4px}
+.sts-hero-num{font-size:2.5em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;
+color:var(--SmartThemeQuoteColor,#8ab4ff)}
+.sts-hero-unit{font-size:.9em;opacity:.7}
+.sts-chips{display:flex;gap:8px;margin-top:12px}
+.sts-chip{flex:1 1 0;padding:8px 10px;border-radius:14px;background:rgba(127,127,127,.12);
+display:flex;flex-direction:column;gap:2px}
+.sts-chip-k{font-size:.68em;opacity:.6}
+.sts-chip-v{font-size:.95em;font-weight:600;font-variant-numeric:tabular-nums}
+.sts-chart{display:flex;align-items:flex-end;gap:6px;height:168px}
+.sts-col{flex:1 1 0;height:100%;padding:0;cursor:pointer;background:none;border:none;color:inherit;
+display:flex;flex-direction:column;justify-content:flex-end;position:relative}
+.sts-track{height:132px;display:flex;align-items:flex-end;border-radius:11px;overflow:hidden;
+background:rgba(127,127,127,.12)}
+.sts-fill{width:100%;border-radius:11px;transform-origin:bottom;
+background:linear-gradient(180deg,var(--SmartThemeQuoteColor,#8ab4ff),var(--SmartThemeEmColor,#c8a2ff));
+animation:sts-grow .62s cubic-bezier(.2,1.2,.3,1) both}
+@keyframes sts-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.sts-col-today .sts-fill{box-shadow:0 0 12px var(--SmartThemeQuoteColor,#8ab4ff)}
+.sts-dow{margin-top:6px;text-align:center;font-size:.72em;opacity:.55}
+.sts-col-today .sts-dow{opacity:1;font-weight:700;color:var(--SmartThemeQuoteColor,#8ab4ff)}
+.sts-tip{position:absolute;left:50%;bottom:100%;transform:translate(-50%,6px) scale(.9);
+white-space:nowrap;padding:4px 9px;border-radius:999px;font-size:.68em;pointer-events:none;
+background:var(--SmartThemeQuoteColor,#8ab4ff);color:var(--SmartThemeBlurTintColor,#1b1b1f);
+opacity:0;transition:all .2s ease}
+.sts-col.sts-open .sts-tip{opacity:1;transform:translate(-50%,-2px) scale(1)}
+.sts-tabs{display:flex;gap:6px;margin-bottom:12px}
+.sts-tab{flex:1 1 0;padding:7px 4px;cursor:pointer;border-radius:999px;font-size:.78em;
+background:rgba(127,127,127,.12);color:inherit;border:1px solid transparent;transition:all .2s ease}
+.sts-tab-on{background:var(--SmartThemeQuoteColor,#8ab4ff);
+color:var(--SmartThemeBlurTintColor,#1b1b1f);font-weight:600}
+.sts-rank{display:flex;align-items:center;gap:10px;padding:7px 0}
+.sts-medal{flex:0 0 22px;text-align:center;font-size:.95em}
+.sts-rank-mid{flex:1 1 auto;min-width:0}
+.sts-rank-name{font-size:.85em;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sts-rank-track{height:7px;border-radius:99px;background:rgba(127,127,127,.14);overflow:hidden}
+.sts-rank-fill{height:100%;border-radius:99px;transform-origin:left;
+background:linear-gradient(90deg,var(--SmartThemeQuoteColor,#8ab4ff),var(--SmartThemeEmColor,#c8a2ff));
+animation:sts-slide .55s cubic-bezier(.2,1.1,.3,1) both}
+@keyframes sts-slide{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.sts-rank-val{flex:0 0 auto;font-size:.78em;opacity:.75;font-variant-numeric:tabular-nums}
+.sts-empty{font-size:.82em;opacity:.55;padding:6px 0}
+.sts-dev{opacity:.72}
+.sts-dev .sts-btn-row{display:flex;gap:6px}
+.sts-dev .menu_button{flex:1 1 0;min-height:32px;font-size:.78em;white-space:nowrap}
+`;
+
+function ensureStyles() {
+    if (document.getElementById('sts_css')) return;
+    const st = document.createElement('style');
+    st.id = 'sts_css';
+    st.textContent = SHEET_CSS;
+    document.head.append(st);
+    console.log(`${LOG} ฝัง CSS หน้ากราฟเข้า head แล้ว`);
+}
+
+/* ══════════ โครงแผ่น + ตัวช่วยสร้าง DOM ══════════ */
 
 const SHEET_HTML = `
 <div class="sts-scrim" id="sts_scrim">
@@ -187,7 +272,7 @@ const SHEET_HTML = `
     <div class="sts-grip"></div>
     <div class="sts-sheet-head">
       <div class="sts-sheet-title">⏱️ เวลาบนหน้าจอ</div>
-      <button class="sts-x" id="sts_close" aria-label="ปิด">✕</button>
+      <button class="sts-x" id="sts_close" type="button" aria-label="ปิด">✕</button>
     </div>
     <div class="sts-sheet-body" id="sts_body"></div>
   </div>
@@ -212,10 +297,12 @@ function countUp(node, target, suffix = '') {
     requestAnimationFrame(frame);
 }
 
+/* ══════════ การ์ดแต่ละใบ ══════════ */
+
 function buildSummary(rows) {
     const totalMs = rows.reduce((a, r) => a + r.ms, 0);
     const totalMsg = rows.reduce((a, r) => a + r.msg, 0);
-    const avgMin = Math.round(totalMs / 60000 / rows.length);
+    const avgMin = Math.round(totalMs / 60000 / (rows.length || 1));
 
     const card = el('div', 'sts-card sts-hero');
     card.append(el('div', 'sts-hero-cap', 'รวม 7 วันที่ผ่านมา'));
@@ -257,8 +344,9 @@ function buildChart(rows) {
 
         col.append(tip, track, el('div', 'sts-dow', r.dow));
         col.addEventListener('click', () => {
+            const on = col.classList.contains('sts-open');
             chart.querySelectorAll('.sts-col').forEach(c => c.classList.remove('sts-open'));
-            col.classList.add('sts-open');
+            if (!on) col.classList.add('sts-open');
         });
         chart.append(col);
     });
@@ -279,15 +367,18 @@ function buildRanks(days) {
     function paint(field) {
         list.textContent = '';
         const top = rankBy(days, field).slice(0, 5);
-        if (!top.length) { list.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้')); return; }
+        if (!top.length) {
+            list.append(el('div', 'sts-empty', 'ยังไม่มีข้อมูลในช่วงนี้ — กดใส่ข้อมูลตัวอย่างดูก่อนได้'));
+            return;
+        }
         const peak = top[0][field] || 1;
         top.forEach((r, i) => {
             const row = el('div', 'sts-rank');
             row.append(el('div', 'sts-medal', medals[i]));
 
             const mid = el('div', 'sts-rank-mid');
-            const nm = s.hideNames ? `ตัวละคร ${i + 1}` : r.name;
-            mid.append(el('div', 'sts-rank-name', nm));
+            mid.append(el('div', 'sts-rank-name', s.hideNames ? `ตัวละคร ${i + 1}` : r.name));
+
             const bar = el('div', 'sts-rank-track');
             const f = el('div', 'sts-rank-fill');
             f.style.width = `${Math.max(4, Math.round((r[field] / peak) * 100))}%`;
@@ -351,28 +442,40 @@ function renderSheet() {
     body.append(buildSummary(rows), buildChart(rows), buildRanks(days), buildDevTools());
 }
 
+/* ══════════ เปิด / ปิดแผ่น ══════════ */
+
 function openSheet() {
-    if (!document.getElementById('sts_scrim')) {
-        document.body.insertAdjacentHTML('beforeend', SHEET_HTML);
-        document.getElementById('sts_close').addEventListener('click', closeSheet);
-        document.getElementById('sts_scrim').addEventListener('click', ev => {
-            if (ev.target.id === 'sts_scrim') closeSheet();
-        });
+    try {
+        ensureStyles();
+
+        if (!document.getElementById('sts_scrim')) {
+            document.body.insertAdjacentHTML('beforeend', SHEET_HTML);
+            document.getElementById('sts_close')?.addEventListener('click', closeSheet);
+            document.getElementById('sts_scrim')?.addEventListener('click', ev => {
+                if (ev.target.id === 'sts_scrim') closeSheet();
+            });
+        }
+
+        renderSheet();
+
+        const scrim = document.getElementById('sts_scrim');
+        if (!scrim) throw new Error('สร้าง #sts_scrim ไม่สำเร็จ');
+        scrim.classList.add('sts-on');
+
+        const cs = getComputedStyle(scrim);
+        console.log(`${LOG} ✅ openSheet · z=${cs.zIndex} · opacity=${cs.opacity} · การ์ด=${scrim.querySelectorAll('.sts-card').length}`);
+    } catch (err) {
+        console.error(`${LOG} ❌ openSheet ล้ม`, err);
+        if (typeof toastr !== 'undefined') toastr.error(String(err?.message || err), 'STS เปิดกราฟไม่ได้');
     }
-    renderSheet();
-    const scrim = document.getElementById('sts_scrim');
-    scrim.classList.add('sts-on');
 }
 
 function closeSheet() {
     document.getElementById('sts_scrim')?.classList.remove('sts-on');
 }
 
-/* ---------- ทางเข้า: เมนูไม้กายสิทธิ์ (ไล่หา 4 ชั้น) ---------- */
+/* ══════════ ทางเข้า: เมนูไม้กายสิทธิ์ (ไล่หา 4 ชั้น) ══════════ */
 
-const MENU_ITEM_ID = 'sts_menu_item';
-
-/** หาก้อน list ของเมนู extensions โดยไม่ผูกกับ id เดียว */
 function findMenu() {
     const direct = document.getElementById('extensionsMenu');
     if (direct) return direct;
@@ -382,7 +485,6 @@ function findMenu() {
 
     const btn = document.getElementById('extensionsMenuButton');
     if (btn) {
-        // เมนูมักเป็น sibling หรือหลานของปุ่ม — ไล่ขึ้นสองชั้นแล้วมองหา list-group
         let hop = btn;
         for (let i = 0; i < 3 && hop; i++) {
             const found = hop.parentElement?.querySelector('.list-group');
@@ -408,7 +510,6 @@ function makeMenuItem() {
     item.append(icon, label);
     item.addEventListener('click', ev => {
         ev.stopPropagation();
-        findMenu()?.classList.add('displayNone');
         document.getElementById('extensionsMenu')?.classList.add('displayNone');
         openSheet();
     });
@@ -424,19 +525,19 @@ function mountMenuItem(reason) {
     return true;
 }
 
-// ชั้น 1 — ลองทุกครึ่งวินาทีช่วง 30 วิแรก
+// ชั้น 1 — ลองเองทุกครึ่งวินาที 30 วิแรก
 let entryTries = 0;
 const stsEntryTimer = setInterval(() => {
     entryTries++;
     if (mountMenuItem(`รอบที่ ${entryTries}`) || entryTries >= 60) {
         clearInterval(stsEntryTimer);
         if (!document.getElementById(MENU_ITEM_ID)) {
-            console.warn(`${LOG} ⚠️ ยังหาเมนูไม่เจอ — จะรอดักตอนกดปุ่มไม้กายสิทธิ์แทน`);
+            console.warn(`${LOG} ⚠️ ยังหาเมนูไม่เจอ — รอดักตอนกดปุ่มไม้กายสิทธิ์แทน`);
         }
     }
 }, 500);
 
-// ชั้น 2 — ดักตอนนิ้วกด ไม่แคร์ว่า id ชื่ออะไร ยัดสดตอนเมนูเปิด
+// ชั้น 2 — ดักตอนนิ้วกด ยัดสดตอนเมนูกาง
 document.addEventListener('click', ev => {
     const hit = ev.target.closest?.('#extensionsMenuButton, .extensionsMenuButton, [id*="extensionsMenu"]');
     if (!hit) return;
@@ -444,26 +545,46 @@ document.addEventListener('click', ev => {
     setTimeout(() => mountMenuItem('ดักตอนกด รอบสอง'), 320);
 }, true);
 
-// ชั้น 3 — เมนูถูกสร้างใหม่ทุกครั้งที่เปิด? ให้ observer คอยเติมกลับ
+// ชั้น 3 — เมนูสร้างใหม่ทุกครั้งที่เปิด? ให้ observer เติมกลับ
 try {
     const obs = new MutationObserver(() => {
-        const menu = findMenu();
-        if (menu && !document.getElementById(MENU_ITEM_ID)) mountMenuItem('observer');
+        if (findMenu() && !document.getElementById(MENU_ITEM_ID)) mountMenuItem('observer');
     });
     obs.observe(document.body, { childList: true, subtree: true });
 } catch (err) {
     console.warn(`${LOG} MutationObserver ใช้ไม่ได้`, err);
 }
 
-// ชั้น 4 — คำสั่งเปิดมือ กันเหนียวไว้เรียกจาก console ได้ตลอด
+// ชั้น 4 — คำสั่งเรียกมือจาก console
 window.STS_OPEN = openSheet;
+window.STS_CLOSE = closeSheet;
 window.STS_FINDMENU = () => {
     const m = findMenu();
     console.log(`${LOG} findMenu →`, m);
     return m ? (m.id || m.className) : 'ไม่เจอ';
 };
+window.STS_DIAG = () => {
+    const scrim = document.getElementById('sts_scrim');
+    const cs = scrim ? getComputedStyle(scrim) : null;
+    let cssFile = false;
+    try { cssFile = [...document.styleSheets].some(s => (s.href || '').includes(MODULE_NAME)); }
+    catch { /* cross-origin */ }
+    const out = {
+        cssฝังจากJS: !!document.getElementById('sts_css'),
+        cssจากไฟล์: cssFile,
+        บรรทัดในเมนู: !!document.getElementById(MENU_ITEM_ID),
+        แผ่นมีอยู่: !!scrim,
+        เปิดอยู่: scrim?.classList.contains('sts-on') ?? false,
+        zIndex: cs?.zIndex ?? '-',
+        opacity: cs?.opacity ?? '-',
+        การ์ด: scrim?.querySelectorAll('.sts-card').length ?? 0,
+        ตัวละครในฐานข้อมูล: Object.keys(getSettings().daily).length,
+    };
+    console.table(out);
+    return out;
+};
 
-/* ---------- drawer ในหน้า Extensions ---------- */
+/* ══════════ drawer ในหน้า Extensions ══════════ */
 
 const PANEL_HTML = `
 <div class="sts-settings" id="sts_panel">
@@ -473,7 +594,7 @@ const PANEL_HTML = `
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <div class="sts-stage-tag">Stage 4-B · กราฟ 7 วัน</div>
+      <div class="sts-stage-tag">Stage 4-D · v0.4.4</div>
 
       <label class="sts-field-label" for="sts_idle">
         หยุดนับเมื่อไม่มีการขยับนาน
@@ -546,4 +667,3 @@ const stsPanelTimer = setInterval(() => {
         console.error(`${LOG} ❌ หา host element ไม่เจอใน 30 วินาที`);
     }
 }, 500);
-            
